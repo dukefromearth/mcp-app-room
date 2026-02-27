@@ -1,0 +1,39 @@
+flowchart LR
+
+subgraph 0["apps"]
+subgraph 1["host-web"]
+subgraph 2["src"]
+3["host-styles.ts"]
+4["implementation.ts"]
+5["theme.ts"]
+6["index.tsx"]
+7["index.module.css"]
+8["room-canvas.tsx"]
+9["sandbox.ts"]
+end
+end
+end
+subgraph A["services"]
+subgraph B["roomd"]
+subgraph C["src"]
+D["hash.ts"]
+E["mcp.ts"]
+F["schema.ts"]
+G["server.ts"]
+H["store.ts"]
+I["types.ts"]
+end
+end
+end
+4-->3
+4-->5
+6-->7
+6-->8
+6-->5
+8-->4
+8-->7
+8-->5
+G-->E
+G-->F
+G-->H
+H-->D

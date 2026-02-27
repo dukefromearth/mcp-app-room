@@ -61,3 +61,24 @@ npm run playwright
 ```
 
 By default this attaches to `http://127.0.0.1:9222`.
+
+## Architecture Linting
+
+Architecture constraints are enforced with `dependency-cruiser`.
+
+```bash
+npm run arch:lint
+```
+
+Full policy, target-state rules, and baseline process are documented in
+[`docs/architecture-linting.md`](docs/architecture-linting.md).
+
+## Architecture Diagrams
+
+Compiler-backed architecture artifacts (dependency graph, type diagram, call graph)
+are generated to `docs/generated/`.
+
+```bash
+npm run arch:gen
+npm run arch:check
+```

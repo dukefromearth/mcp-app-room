@@ -1,8 +1,5 @@
-import type { Tool } from "@modelcontextprotocol/sdk/types.js";
-import type {
-  McpUiResourceCsp,
-  McpUiResourcePermissions,
-} from "@modelcontextprotocol/ext-apps/app-bridge";
+export type UiResourceCsp = unknown;
+export type UiResourcePermissions = unknown;
 
 export interface GridContainer {
   x: number;
@@ -167,12 +164,12 @@ export interface CommandEnvelope {
 export interface ToolUiResource {
   uiResourceUri: string;
   html: string;
-  csp?: McpUiResourceCsp;
-  permissions?: McpUiResourcePermissions;
+  csp?: UiResourceCsp;
+  permissions?: UiResourcePermissions;
 }
 
 export interface SessionToolInfo {
-  tool: Tool;
+  tool: unknown;
   uiResourceUri?: string;
 }
 

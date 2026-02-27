@@ -202,3 +202,91 @@ http://localhost:8080/?mode=room&roomd=http://localhost:8090&room=demo
 - If host startup fails with `EADDRINUSE`, free ports `8080/8081/8090` and restart.
 - Keep one terminal for `npm run start` and another for CLI commands.
 - Prefer `--output json` for machine-readable output when chaining tools.
+
+## 6) App-Agnostic Command Dependency Flow
+
+This section describes the logical order of CLI operations without assuming any
+specific MCP app or tool names.
+
+### A) Start with room-level truth
+
+You can always run these first:
+
+```bash
+npm run roomd:cli -- health
+npm run roomd:cli -- state --room <room-id> -o json
+```
+
+From `state`, capture:
+- room identity/revision (`state.roomId`, `state.revision`)
+- mounted instances (`state.mounts[*].instanceId`)
+- currently selected instance (`state.selectedInstanceId`)
+- prior invocations (`state.invocations[*]`)
+
+### B) Instance-scoped commands require `instanceId`
+
+Do not run instance commands until you have an `instanceId` from `state.mounts`:
+
+```bash
+npm run roomd:cli -- capabilities --room <room-id> --instance <instance-id> -o json
+npm run roomd:cli -- resources-list --room <room-id> --instance <instance-id> -o json
+npm run roomd:cli -- resource-templates-list --room <room-id> --instance <instance-id> -o json
+npm run roomd:cli -- prompts-list --room <room-id> --instance <instance-id> -o json
+```
+
+Notes:
+- `prompts-list` may return "method not found" if that server does not implement prompts.
+- `resources-list` and `resource-templates-list` tell you what can be read next.
+
+### C) Resource reads require a URI
+
+Do not call `resources-read` until a valid URI has been discovered from
+`resources-list` (or inferred from a template and concrete parameters):
+
+```bash
+npm run roomd:cli -- resources-read --room <room-id> --instance <instance-id> --uri <resource-uri> -o json
+```
+
+### D) Invocations and tool calls are sequential
+
+If you invoke a mounted instance, you create a new invocation record:
+
+```bash
+npm run roomd:cli -- call --room <room-id> --instance <instance-id> --input '{}' -o json
+```
+
+Then re-read state to get the invocation metadata:
+
+```bash
+npm run roomd:cli -- state-get --room <room-id> --path state.invocations -o json
+```
+
+From invocation payloads, you may get app-defined identifiers (for example,
+session or view identifiers). Those values are often required for subsequent,
+app-specific tool calls.
+
+### E) Direct tool calls require prior discovery
+
+Use `tool-call` only after you know:
+- `instanceId` (from mounts)
+- tool name (from app docs/capabilities/conventions)
+- required arguments (often from prior invocation outputs)
+
+```bash
+npm run roomd:cli -- tool-call --room <room-id> --instance <instance-id> --name <tool-name> --arguments '{"key":"value"}' -o json
+```
+
+### F) Safe “unknown app” triage order
+
+When you know nothing about what is mounted, this order avoids dead ends:
+
+1. `health`
+2. `state`
+3. pick an `instanceId` from `state.mounts`
+4. `capabilities`
+5. `resources-list`
+6. `resource-templates-list`
+7. optional `prompts-list`
+8. `resources-read` for discovered URIs
+9. `call` or `tool-call` only after required identifiers are known
+10. `state-get state.invocations` to correlate outputs to invocation IDs
