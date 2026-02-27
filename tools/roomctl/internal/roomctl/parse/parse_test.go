@@ -64,3 +64,30 @@ func TestOrder(t *testing.T) {
 		}
 	}
 }
+
+func TestJSONArrayObjects(t *testing.T) {
+	t.Parallel()
+
+	items, err := JSONArrayObjects(`[{"op":"swap","first":"inst-1","second":"inst-2"}]`)
+	if err != nil {
+		t.Fatalf("JSONArrayObjects() error = %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("unexpected item count: %d", len(items))
+	}
+	if items[0]["op"] != "swap" {
+		t.Fatalf("unexpected op: %+v", items[0])
+	}
+}
+
+func TestJSONArrayObjectsRejectsInvalidInput(t *testing.T) {
+	t.Parallel()
+
+	cases := []string{"", `{}`, `["x"]`}
+	for _, tc := range cases {
+		_, err := JSONArrayObjects(tc)
+		if err == nil {
+			t.Fatalf("expected error for %q", tc)
+		}
+	}
+}

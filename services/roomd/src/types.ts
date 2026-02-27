@@ -20,6 +20,58 @@ export interface RoomMount {
   container: GridContainer;
 }
 
+export type LayoutAdapterName = "grid12";
+
+export type LayoutOp =
+  | {
+      op: "set";
+      instanceId: string;
+      container: GridContainer;
+    }
+  | {
+      op: "move";
+      instanceId: string;
+      dx: number;
+      dy: number;
+    }
+  | {
+      op: "resize";
+      instanceId: string;
+      dw: number;
+      dh: number;
+    }
+  | {
+      op: "swap";
+      first: string;
+      second: string;
+    }
+  | {
+      op: "bring-to-front";
+      instanceId: string;
+    }
+  | {
+      op: "send-to-back";
+      instanceId: string;
+    }
+  | {
+      op: "align";
+      axis: "x" | "y";
+      value: number;
+      instanceIds?: string[];
+    }
+  | {
+      op: "distribute";
+      axis: "x" | "y";
+      gap?: number;
+      instanceIds?: string[];
+    }
+  | {
+      op: "snap";
+      instanceIds?: string[];
+      stepX?: number;
+      stepY?: number;
+    };
+
 export type InvocationStatus = "running" | "completed" | "failed";
 
 export interface RoomInvocation {
@@ -56,7 +108,8 @@ export type RoomEvent =
         | "call-failed"
         | "resolve-ui-uri"
         | "select"
-        | "reorder";
+        | "reorder"
+        | "layout";
       state: RoomState;
     }
   | {
@@ -99,6 +152,11 @@ export type RoomCommand =
   | {
       type: "reorder";
       order: string[];
+    }
+  | {
+      type: "layout";
+      adapter?: LayoutAdapterName;
+      ops: LayoutOp[];
     };
 
 export interface CommandEnvelope {

@@ -46,6 +46,7 @@ npm run roomd:cli -- mount --room demo --instance inst-1 --server http://localho
 npm run roomd:cli -- call --room demo --instance inst-1 --input '{}'
 npm run roomd:cli -- select --room demo --instance inst-1
 npm run roomd:cli -- reorder --room demo --order inst-2,inst-1
+npm run roomd:cli -- layout --room demo --ops '[{"op":"swap","first":"inst-1","second":"inst-2"}]'
 ```
 
 Global flags:

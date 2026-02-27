@@ -86,6 +86,20 @@ Useful extras:
 npm run roomd:cli -- call --room demo --instance inst-1 --input '{}'
 npm run roomd:cli -- select --room demo --instance inst-2
 npm run roomd:cli -- reorder --room demo --order inst-2,inst-1
+npm run roomd:cli -- layout --room demo --ops '[{"op":"swap","first":"inst-1","second":"inst-2"}]'
+```
+
+Container/layout manipulation (transactional):
+
+```bash
+# Move one instance
+npm run roomd:cli -- layout --room demo --ops '[{"op":"move","instanceId":"inst-1","dx":1,"dy":0}]'
+
+# Set an exact container
+npm run roomd:cli -- layout --room demo --ops '[{"op":"set","instanceId":"inst-1","container":{"x":0,"y":0,"w":6,"h":4}}]'
+
+# Apply multiple operations atomically
+npm run roomd:cli -- layout --room demo --ops '[{"op":"swap","first":"inst-1","second":"inst-2"},{"op":"bring-to-front","instanceId":"inst-1"}]'
 ```
 
 ## 3) `jq` Tips (Use These A Lot)
@@ -130,7 +144,7 @@ This repo includes an attached CDP shell:
 npm run playwright
 ```
 
-Useful shell commands:
+Core shell commands:
 - `list`
 - `use <index>`
 - `goto <url>`
@@ -139,6 +153,42 @@ Useful shell commands:
 - `type <selector> <text>`
 - `press <key>`
 - `screenshot [file]`
+
+Structured inspection command:
+- `inspect <target> [options]`
+- targets: `dom | globals | state | storage | network | console`
+- options:
+- `--selector <css>` (for `dom`)
+- `--path <dot.path>` (for `globals`, `state`, `storage`)
+- `--filter </pattern/flags|text>`
+- `--context <n>` (for `dom`)
+- `--max <n>`
+- `--truncate <n>`
+- `--format <json|table>`
+
+Inspect examples:
+
+```bash
+# Find matching DOM text and show nearby sibling context
+inspect dom --selector "[data-testid]" --filter "/error|timeout/i" --context 2 --max 20
+
+# List globals at a path and filter keys
+inspect globals --path "window" --filter "/app|store/i" --max 50
+
+# Read app state snapshot (from window.__APP_STATE__)
+inspect state --path "session.user" --truncate 800
+
+# Read only session storage keys matching auth
+inspect storage --path session --filter auth --max 25
+
+# Review recent console and network telemetry
+inspect console --filter "/warn|error/i" --max 30
+inspect network --filter "/api|mcp/i" --max 30
+```
+
+Unsafe eval (disabled by default):
+- `eval <js-expression>` is only available if:
+- `PLAYWRIGHT_ALLOW_UNSAFE_EVAL=true npm run playwright`
 
 Example URL to open in shell:
 

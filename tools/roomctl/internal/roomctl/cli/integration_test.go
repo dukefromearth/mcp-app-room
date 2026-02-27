@@ -180,6 +180,66 @@ func TestReorderCommandIntegration(t *testing.T) {
 	}
 }
 
+func TestLayoutCommandIntegration(t *testing.T) {
+	t.Parallel()
+
+	var gotMethod string
+	var gotPath string
+	var decodeErr error
+	var gotBody struct {
+		IdempotencyKey string `json:"idempotencyKey"`
+		Command        struct {
+			Type    string                   `json:"type"`
+			Adapter string                   `json:"adapter"`
+			Ops     []map[string]interface{} `json:"ops"`
+		} `json:"command"`
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		decodeErr = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"revision":6}`))
+	}))
+	defer server.Close()
+
+	env := runCommand(
+		t,
+		server.URL,
+		"layout",
+		"--room", "demo",
+		"--adapter", "grid12",
+		"--ops", `[{"op":"swap","first":"inst-1","second":"inst-2"}]`,
+		"--idempotency-key", "idem-layout",
+	)
+
+	if gotMethod != http.MethodPost {
+		t.Fatalf("method=%s want=%s", gotMethod, http.MethodPost)
+	}
+	if gotPath != "/rooms/demo/commands" {
+		t.Fatalf("path=%s want=/rooms/demo/commands", gotPath)
+	}
+	if decodeErr != nil {
+		t.Fatalf("decode request body: %v", decodeErr)
+	}
+	if gotBody.Command.Type != "layout" {
+		t.Fatalf("command.type=%q want=layout", gotBody.Command.Type)
+	}
+	if gotBody.Command.Adapter != "grid12" {
+		t.Fatalf("command.adapter=%q want=grid12", gotBody.Command.Adapter)
+	}
+	if len(gotBody.Command.Ops) != 1 {
+		t.Fatalf("ops length=%d want=1", len(gotBody.Command.Ops))
+	}
+	if gotBody.Command.Ops[0]["op"] != "swap" {
+		t.Fatalf("first op=%v want=swap", gotBody.Command.Ops[0]["op"])
+	}
+	if env.Status != http.StatusOK {
+		t.Fatalf("status=%d want=%d", env.Status, http.StatusOK)
+	}
+}
+
 func runCommand(t *testing.T, baseURL string, args ...string) roomd.Envelope {
 	t.Helper()
 

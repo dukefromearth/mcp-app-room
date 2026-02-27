@@ -2,7 +2,10 @@ import type { CommandEnvelope } from "./types";
 import { stableStringify } from "./hash";
 import type {
   CommandSuccessResponse,
+  GridContainer,
   IdempotencyRecord,
+  LayoutAdapterName,
+  LayoutOp,
   McpSession,
   McpSessionFactory,
   RoomCommand,
@@ -37,6 +40,27 @@ interface CommandExecutionResult {
   statusCode: number;
   response: CommandSuccessResponse;
 }
+
+interface LayoutAdapter {
+  readonly name: LayoutAdapterName;
+  normalize(container: GridContainer): GridContainer;
+}
+
+const grid12LayoutAdapter: LayoutAdapter = {
+  name: "grid12",
+  normalize(container) {
+    const clampedWidth = clamp(Math.trunc(container.w), 1, 12);
+    const clampedHeight = Math.max(1, Math.trunc(container.h));
+    const clampedX = clamp(Math.trunc(container.x), 0, Math.max(0, 12 - clampedWidth));
+    const clampedY = Math.max(0, Math.trunc(container.y));
+    return {
+      x: clampedX,
+      y: clampedY,
+      w: clampedWidth,
+      h: clampedHeight,
+    };
+  },
+};
 
 export class HttpError extends Error {
   constructor(
@@ -291,6 +315,8 @@ export class RoomStore {
         return this.handleSelect(room, command.instanceId);
       case "reorder":
         return this.handleReorder(room, command.order);
+      case "layout":
+        return this.handleLayout(room, command.adapter, command.ops);
       default:
         throw new HttpError(400, `Unsupported command type: ${String(command)}`);
     }
@@ -491,6 +517,231 @@ export class RoomStore {
     };
   }
 
+  private handleLayout(
+    room: RoomRuntime,
+    adapterName: LayoutAdapterName | undefined,
+    ops: LayoutOp[],
+  ): CommandExecutionResult {
+    if (ops.length === 0) {
+      throw new HttpError(400, "Layout command must include at least one operation");
+    }
+
+    const adapter = this.resolveLayoutAdapter(adapterName);
+    const nextContainers = new Map<string, GridContainer>();
+    for (const [instanceId, mount] of room.mounts.entries()) {
+      nextContainers.set(instanceId, adapter.normalize(mount.container));
+    }
+    let nextOrder = [...room.order];
+
+    for (const op of ops) {
+      switch (op.op) {
+        case "set": {
+          this.assertMountedInstance(nextContainers, op.instanceId);
+          nextContainers.set(op.instanceId, adapter.normalize(op.container));
+          break;
+        }
+        case "move": {
+          const current = this.requireLayoutContainer(nextContainers, op.instanceId);
+          nextContainers.set(
+            op.instanceId,
+            adapter.normalize({
+              ...current,
+              x: current.x + op.dx,
+              y: current.y + op.dy,
+            }),
+          );
+          break;
+        }
+        case "resize": {
+          const current = this.requireLayoutContainer(nextContainers, op.instanceId);
+          nextContainers.set(
+            op.instanceId,
+            adapter.normalize({
+              ...current,
+              w: current.w + op.dw,
+              h: current.h + op.dh,
+            }),
+          );
+          break;
+        }
+        case "swap": {
+          if (op.first === op.second) {
+            throw new HttpError(400, "Layout swap requires two distinct instance IDs");
+          }
+          const first = this.requireLayoutContainer(nextContainers, op.first);
+          const second = this.requireLayoutContainer(nextContainers, op.second);
+          nextContainers.set(op.first, adapter.normalize(second));
+          nextContainers.set(op.second, adapter.normalize(first));
+          break;
+        }
+        case "bring-to-front": {
+          this.assertMountedInstance(nextContainers, op.instanceId);
+          nextOrder = moveToEnd(nextOrder, op.instanceId);
+          break;
+        }
+        case "send-to-back": {
+          this.assertMountedInstance(nextContainers, op.instanceId);
+          nextOrder = moveToStart(nextOrder, op.instanceId);
+          break;
+        }
+        case "align": {
+          const instanceIds = this.resolveLayoutInstanceIds(
+            room,
+            nextContainers,
+            op.instanceIds,
+          );
+          for (const instanceId of instanceIds) {
+            const current = this.requireLayoutContainer(nextContainers, instanceId);
+            nextContainers.set(
+              instanceId,
+              adapter.normalize({
+                ...current,
+                [op.axis]: op.value,
+              }),
+            );
+          }
+          break;
+        }
+        case "distribute": {
+          const instanceIds = this.resolveLayoutInstanceIds(
+            room,
+            nextContainers,
+            op.instanceIds,
+          );
+          if (instanceIds.length < 2) {
+            break;
+          }
+          const gap = op.gap ?? 0;
+          const sorted = [...instanceIds].sort((a, b) => {
+            const first = this.requireLayoutContainer(nextContainers, a);
+            const second = this.requireLayoutContainer(nextContainers, b);
+            return first[op.axis] - second[op.axis];
+          });
+          let cursor = this.requireLayoutContainer(nextContainers, sorted[0])[op.axis];
+          for (const instanceId of sorted) {
+            const current = this.requireLayoutContainer(nextContainers, instanceId);
+            const updated = adapter.normalize({
+              ...current,
+              [op.axis]: cursor,
+            });
+            nextContainers.set(instanceId, updated);
+            const size = op.axis === "x" ? updated.w : updated.h;
+            cursor += size + gap;
+          }
+          break;
+        }
+        case "snap": {
+          const stepX = op.stepX ?? 1;
+          const stepY = op.stepY ?? 1;
+          const instanceIds = this.resolveLayoutInstanceIds(
+            room,
+            nextContainers,
+            op.instanceIds,
+          );
+          for (const instanceId of instanceIds) {
+            const current = this.requireLayoutContainer(nextContainers, instanceId);
+            nextContainers.set(
+              instanceId,
+              adapter.normalize({
+                x: snapToStepNonNegative(current.x, stepX),
+                y: snapToStepNonNegative(current.y, stepY),
+                w: snapToStepPositive(current.w, stepX),
+                h: snapToStepPositive(current.h, stepY),
+              }),
+            );
+          }
+          break;
+        }
+        default:
+          throw new HttpError(400, `Unsupported layout operation: ${String(op)}`);
+      }
+    }
+
+    let changed = false;
+    for (const [instanceId, container] of nextContainers.entries()) {
+      const mount = this.requireMount(room, instanceId);
+      if (!sameContainer(mount.container, container)) {
+        mount.container = { ...container };
+        changed = true;
+      }
+    }
+
+    if (!sameOrder(room.order, nextOrder)) {
+      room.order = [...nextOrder];
+      changed = true;
+    }
+
+    if (!changed) {
+      return {
+        statusCode: 200,
+        response: {
+          ok: true,
+          revision: room.revision,
+          state: this.buildState(room),
+        },
+      };
+    }
+
+    const state = this.commit(room, "layout");
+    return {
+      statusCode: 200,
+      response: {
+        ok: true,
+        revision: state.revision,
+        state,
+      },
+    };
+  }
+
+  private resolveLayoutAdapter(name: LayoutAdapterName | undefined): LayoutAdapter {
+    const effective = name ?? "grid12";
+    if (effective === "grid12") {
+      return grid12LayoutAdapter;
+    }
+    throw new HttpError(400, `Unsupported layout adapter: ${effective}`);
+  }
+
+  private resolveLayoutInstanceIds(
+    room: RoomRuntime,
+    containers: Map<string, GridContainer>,
+    instanceIds: string[] | undefined,
+  ): string[] {
+    if (!instanceIds || instanceIds.length === 0) {
+      return [...room.order];
+    }
+    const seen = new Set<string>();
+    const resolved: string[] = [];
+    for (const instanceId of instanceIds) {
+      if (seen.has(instanceId)) {
+        continue;
+      }
+      this.assertMountedInstance(containers, instanceId);
+      seen.add(instanceId);
+      resolved.push(instanceId);
+    }
+    return resolved;
+  }
+
+  private assertMountedInstance(
+    containers: Map<string, GridContainer>,
+    instanceId: string,
+  ): void {
+    if (!containers.has(instanceId)) {
+      throw new HttpError(404, `Instance not found: ${instanceId}`);
+    }
+  }
+
+  private requireLayoutContainer(
+    containers: Map<string, GridContainer>,
+    instanceId: string,
+  ): GridContainer {
+    const container = containers.get(instanceId);
+    if (!container) {
+      throw new HttpError(404, `Instance not found: ${instanceId}`);
+    }
+    return container;
+  }
+
   private handleCall(
     room: RoomRuntime,
     instanceId: string,
@@ -665,4 +916,45 @@ export class RoomStore {
       throw new HttpError(403, `Server URL is not allowlisted: ${serverUrl}`);
     }
   }
+}
+
+function clamp(value: number, min: number, max: number): number {
+  if (value < min) {
+    return min;
+  }
+  if (value > max) {
+    return max;
+  }
+  return value;
+}
+
+function sameContainer(left: GridContainer, right: GridContainer): boolean {
+  return (
+    left.x === right.x &&
+    left.y === right.y &&
+    left.w === right.w &&
+    left.h === right.h
+  );
+}
+
+function sameOrder(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value, idx) => value === right[idx]);
+}
+
+function moveToStart(items: string[], value: string): string[] {
+  const without = items.filter((item) => item !== value);
+  return [value, ...without];
+}
+
+function moveToEnd(items: string[], value: string): string[] {
+  const without = items.filter((item) => item !== value);
+  return [...without, value];
+}
+
+function snapToStepNonNegative(value: number, step: number): number {
+  return Math.max(0, Math.round(value / step) * step);
+}
+
+function snapToStepPositive(value: number, step: number): number {
+  return Math.max(1, Math.round(value / step) * step);
 }

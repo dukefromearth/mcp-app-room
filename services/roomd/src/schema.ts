@@ -47,6 +47,86 @@ const reorderCommandSchema = z.object({
   order: z.array(z.string().min(1)),
 });
 
+const layoutAxisSchema = z.enum(["x", "y"]);
+const layoutInstanceIdsSchema = z.array(z.string().min(1)).min(1).optional();
+
+const setLayoutOpSchema = z.object({
+  op: z.literal("set"),
+  instanceId: z.string().min(1),
+  container: gridContainerSchema,
+});
+
+const moveLayoutOpSchema = z.object({
+  op: z.literal("move"),
+  instanceId: z.string().min(1),
+  dx: z.number().int(),
+  dy: z.number().int(),
+});
+
+const resizeLayoutOpSchema = z.object({
+  op: z.literal("resize"),
+  instanceId: z.string().min(1),
+  dw: z.number().int(),
+  dh: z.number().int(),
+});
+
+const swapLayoutOpSchema = z.object({
+  op: z.literal("swap"),
+  first: z.string().min(1),
+  second: z.string().min(1),
+});
+
+const bringToFrontLayoutOpSchema = z.object({
+  op: z.literal("bring-to-front"),
+  instanceId: z.string().min(1),
+});
+
+const sendToBackLayoutOpSchema = z.object({
+  op: z.literal("send-to-back"),
+  instanceId: z.string().min(1),
+});
+
+const alignLayoutOpSchema = z.object({
+  op: z.literal("align"),
+  axis: layoutAxisSchema,
+  value: z.number().int().min(0),
+  instanceIds: layoutInstanceIdsSchema,
+});
+
+const distributeLayoutOpSchema = z.object({
+  op: z.literal("distribute"),
+  axis: layoutAxisSchema,
+  gap: z.number().int().min(0).optional(),
+  instanceIds: layoutInstanceIdsSchema,
+});
+
+const snapLayoutOpSchema = z.object({
+  op: z.literal("snap"),
+  instanceIds: layoutInstanceIdsSchema,
+  stepX: z.number().int().min(1).optional(),
+  stepY: z.number().int().min(1).optional(),
+});
+
+const layoutCommandSchema = z.object({
+  type: z.literal("layout"),
+  adapter: z.enum(["grid12"]).optional(),
+  ops: z
+    .array(
+      z.discriminatedUnion("op", [
+        setLayoutOpSchema,
+        moveLayoutOpSchema,
+        resizeLayoutOpSchema,
+        swapLayoutOpSchema,
+        bringToFrontLayoutOpSchema,
+        sendToBackLayoutOpSchema,
+        alignLayoutOpSchema,
+        distributeLayoutOpSchema,
+        snapLayoutOpSchema,
+      ]),
+    )
+    .min(1),
+});
+
 export const roomCommandSchema = z.discriminatedUnion("type", [
   mountCommandSchema,
   hideCommandSchema,
@@ -55,6 +135,7 @@ export const roomCommandSchema = z.discriminatedUnion("type", [
   callCommandSchema,
   selectCommandSchema,
   reorderCommandSchema,
+  layoutCommandSchema,
 ]);
 
 export const commandEnvelopeSchema = z.object({

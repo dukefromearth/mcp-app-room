@@ -61,6 +61,33 @@ func JSONObject(value string) (map[string]any, error) {
 	return object, nil
 }
 
+func JSONArrayObjects(value string) ([]map[string]any, error) {
+	if strings.TrimSpace(value) == "" {
+		return nil, errors.New("expected JSON array")
+	}
+
+	var payload any
+	if err := json.Unmarshal([]byte(value), &payload); err != nil {
+		return nil, fmt.Errorf("parse JSON: %w", err)
+	}
+
+	items, ok := payload.([]any)
+	if !ok {
+		return nil, errors.New("expected JSON array")
+	}
+
+	objects := make([]map[string]any, 0, len(items))
+	for idx, item := range items {
+		object, ok := item.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("expected JSON object at index %d", idx)
+		}
+		objects = append(objects, object)
+	}
+
+	return objects, nil
+}
+
 func Order(values []string) []string {
 	items := make([]string, 0, len(values))
 	for _, value := range values {

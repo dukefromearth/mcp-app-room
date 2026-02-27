@@ -36,6 +36,97 @@ const REMOTE_DEBUGGING_PORT = parseInt(
   10,
 );
 
+/**
+ * CSP mode used by the sandbox server.
+ *
+ * - `strict`: spec-aligned restrictive defaults.
+ * - `dangerouslyAllow`: broad, development-focused allowances for fast prototyping.
+ */
+type SandboxCspMode = "strict" | "dangerouslyAllow";
+
+/**
+ * Profile shape used as the single source of truth for CSP behavior.
+ */
+interface SandboxCspProfile {
+  description: string;
+  defaultSrc: string[];
+  scriptSrc: string[];
+  styleSrc: string[];
+  imgSrc: string[];
+  fontSrc: string[];
+  mediaSrc: string[];
+  connectSrc: {
+    withoutMetadata: string[];
+    withMetadata: string[];
+  };
+  frameSrc: {
+    default: string[];
+    withMetadata: string[];
+  };
+  baseUri: {
+    default: string[];
+    withMetadata: string[];
+  };
+  objectSrc: string[];
+}
+
+/**
+ * CSP policy profiles.
+ *
+ * This object is the single source of truth for all mode-specific CSP decisions.
+ */
+const SANDBOX_CSP_PROFILES: Record<SandboxCspMode, SandboxCspProfile> = {
+  strict: {
+    description: "Spec-aligned restrictive defaults.",
+    defaultSrc: ["'none'"],
+    scriptSrc: ["'self'", "'unsafe-inline'"],
+    styleSrc: ["'self'", "'unsafe-inline'"],
+    imgSrc: ["'self'", "data:"],
+    fontSrc: ["'self'"],
+    mediaSrc: ["'self'", "data:"],
+    connectSrc: {
+      withoutMetadata: ["'none'"],
+      withMetadata: ["'self'"],
+    },
+    frameSrc: {
+      default: ["'none'"],
+      withMetadata: [],
+    },
+    baseUri: {
+      default: ["'self'"],
+      withMetadata: [],
+    },
+    objectSrc: ["'none'"],
+  },
+  dangerouslyAllow: {
+    description: "Development mode with broad source allowances.",
+    defaultSrc: ["'self'", "'unsafe-inline'", "blob:", "data:"],
+    scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "blob:", "data:"],
+    styleSrc: ["'self'", "'unsafe-inline'", "blob:", "data:"],
+    imgSrc: ["'self'", "data:", "blob:"],
+    fontSrc: ["'self'", "data:", "blob:"],
+    mediaSrc: ["'self'", "data:", "blob:"],
+    connectSrc: {
+      withoutMetadata: ["'self'", "http:", "https:", "ws:", "wss:"],
+      withMetadata: ["'self'", "http:", "https:", "ws:", "wss:"],
+    },
+    frameSrc: {
+      default: ["'self'", "http:", "https:"],
+      withMetadata: ["'self'", "http:", "https:"],
+    },
+    baseUri: {
+      default: ["'self'"],
+      withMetadata: ["'self'"],
+    },
+    objectSrc: ["'none'"],
+  },
+};
+
+const SANDBOX_CSP_MODE = resolveSandboxCspMode(
+  process.env.SANDBOX_CSP_MODE,
+  process.env.DANGEROUSLY_ALLOW_SANDBOX,
+);
+
 // ============ Host Server (port 8080) ============
 const hostApp = express();
 hostApp.use(cors());
@@ -72,48 +163,149 @@ hostApp.get("/", (_req, res) => {
 const sandboxApp = express();
 sandboxApp.use(cors());
 
-// Validate CSP domain entries to prevent injection attacks.
-// Rejects entries containing characters that could:
-// - `;` or newlines: break out to new CSP directive
-// - quotes: inject CSP keywords like 'unsafe-eval'
-// - space: inject multiple sources in one entry
-function sanitizeCspDomains(domains?: string[]): string[] {
-  if (!domains) return [];
-  return domains.filter((d) => typeof d === "string" && !/[;\r\n'" ]/.test(d));
+/**
+ * Strict source-expression guard used for CSP domain arrays.
+ *
+ * Per the MCP Apps spec, `ui.csp.*Domains` fields are origin lists. This host
+ * accepts HTTP(S)/WS(S) origins plus wildcard subdomains (`https://*.example.com`)
+ * and rejects anything that could loosen CSP via directive injection.
+ */
+const SAFE_SOURCE_PATTERN = /^(https?|wss?):\/\/(\*\.)?[a-zA-Z0-9.-]+(?::\d+)?$/;
+const UNSAFE_SOURCE_CHARS = /[;\r\n'" ]/;
+
+/**
+ * Validate and sanitize user-declared CSP origin sources.
+ *
+ * Hosts MUST build CSP from declared metadata and MUST NOT allow undeclared
+ * domains. Invalid entries are discarded.
+ *
+ * @param sources - Raw origin list from MCP resource metadata.
+ * @returns Sanitized unique source expressions.
+ */
+function sanitizeCspOrigins(sources?: string[]): string[] {
+  if (!sources) {
+    return [];
+  }
+
+  const unique = new Set<string>();
+  for (const raw of sources) {
+    if (typeof raw !== "string") {
+      continue;
+    }
+    const value = raw.trim();
+    if (!value) {
+      continue;
+    }
+    if (UNSAFE_SOURCE_CHARS.test(value)) {
+      continue;
+    }
+    if (!SAFE_SOURCE_PATTERN.test(value)) {
+      continue;
+    }
+    unique.add(value);
+  }
+
+  return Array.from(unique);
 }
 
+/**
+ * Build a single CSP directive line from a name and source list.
+ *
+ * @param name - Directive name.
+ * @param sources - Source-expression list.
+ * @returns Serialized directive.
+ */
+function directive(name: string, sources: string[]): string {
+  return `${name} ${sources.join(" ")}`;
+}
+
+/**
+ * Merge source-expression groups, preserving order while removing duplicates.
+ *
+ * @param groups - Source-expression lists to merge.
+ * @returns Deduplicated source-expression list.
+ */
+function mergeSources(...groups: string[][]): string[] {
+  const seen = new Set<string>();
+  const merged: string[] = [];
+  for (const group of groups) {
+    for (const source of group) {
+      if (seen.has(source)) {
+        continue;
+      }
+      seen.add(source);
+      merged.push(source);
+    }
+  }
+  return merged;
+}
+
+/**
+ * Resolve sandbox mode from environment inputs.
+ *
+ * `DANGEROUSLY_ALLOW_SANDBOX=true` is a convenience override for fast local
+ * prototyping. Otherwise `SANDBOX_CSP_MODE` can be set explicitly.
+ *
+ * @param modeValue - `SANDBOX_CSP_MODE` raw value.
+ * @param dangerousFlag - `DANGEROUSLY_ALLOW_SANDBOX` raw value.
+ * @returns Resolved mode.
+ */
+function resolveSandboxCspMode(
+  modeValue: string | undefined,
+  dangerousFlag: string | undefined,
+): SandboxCspMode {
+  const dangerous = (dangerousFlag ?? "").trim().toLowerCase();
+  if (dangerous === "1" || dangerous === "true" || dangerous === "yes") {
+    return "dangerouslyAllow";
+  }
+
+  const mode = (modeValue ?? "").trim();
+  if (mode === "dangerouslyAllow") {
+    return "dangerouslyAllow";
+  }
+  return "strict";
+}
+
+/**
+ * Build a spec-conformant CSP header for sandboxed MCP App rendering.
+ *
+ * Spec requirements implemented here:
+ * - Restrictive default when `ui.csp` metadata is omitted.
+ * - Domain-based expansion only from declared `ui.csp` fields.
+ * - No permissive defaults like `unsafe-eval`, `blob:`, or unrestricted network.
+ *
+ * @param csp - Optional CSP metadata from `resource._meta.ui.csp`.
+ * @returns Serialized CSP header value.
+ */
 function buildCspHeader(csp?: McpUiResourceCsp): string {
-  const resourceDomains = sanitizeCspDomains(csp?.resourceDomains).join(" ");
-  const connectDomains = sanitizeCspDomains(csp?.connectDomains).join(" ");
-  const frameDomains = sanitizeCspDomains(csp?.frameDomains).join(" ") || null;
-  const baseUriDomains =
-    sanitizeCspDomains(csp?.baseUriDomains).join(" ") || null;
+  const profile = SANDBOX_CSP_PROFILES[SANDBOX_CSP_MODE];
+  const resourceDomains = sanitizeCspOrigins(csp?.resourceDomains);
+  const connectDomains = sanitizeCspOrigins(csp?.connectDomains);
+  const frameDomains = sanitizeCspOrigins(csp?.frameDomains);
+  const baseUriDomains = sanitizeCspOrigins(csp?.baseUriDomains);
+  const hasDeclaredCspMetadata = !!csp;
+
+  const connectBase = hasDeclaredCspMetadata
+    ? profile.connectSrc.withMetadata
+    : profile.connectSrc.withoutMetadata;
+  const frameBase = frameDomains.length > 0
+    ? profile.frameSrc.withMetadata
+    : profile.frameSrc.default;
+  const baseUriBase = baseUriDomains.length > 0
+    ? profile.baseUri.withMetadata
+    : profile.baseUri.default;
 
   const directives = [
-    // Default: allow same-origin + inline styles/scripts (needed for bundled apps)
-    "default-src 'self' 'unsafe-inline'",
-    // Scripts: same-origin + inline + eval (some libs need eval) + blob (workers) + specified domains
-    `script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: data: ${resourceDomains}`.trim(),
-    // Styles: same-origin + inline + specified domains
-    `style-src 'self' 'unsafe-inline' blob: data: ${resourceDomains}`.trim(),
-    // Images: same-origin + data/blob URIs + specified domains
-    `img-src 'self' data: blob: ${resourceDomains}`.trim(),
-    // Fonts: same-origin + data/blob URIs + specified domains
-    `font-src 'self' data: blob: ${resourceDomains}`.trim(),
-    // Network requests: same-origin + specified API/tile domains
-    `connect-src 'self' ${connectDomains}`.trim(),
-    // Workers: same-origin + blob (dynamic workers) + specified domains
-    // This is critical for WebGL apps (CesiumJS, Three.js) that use workers for:
-    // - Tile decoding and terrain processing
-    // - Image processing and texture loading
-    // - Physics and geometry calculations
-    `worker-src 'self' blob: ${resourceDomains}`.trim(),
-    // Nested iframes: use frameDomains if provided, otherwise block all
-    frameDomains ? `frame-src ${frameDomains}` : "frame-src 'none'",
-    // Plugins: always blocked (defense in depth)
-    "object-src 'none'",
-    // Base URI: use baseUriDomains if provided, otherwise block all
-    baseUriDomains ? `base-uri ${baseUriDomains}` : "base-uri 'none'",
+    directive("default-src", profile.defaultSrc),
+    directive("script-src", mergeSources(profile.scriptSrc, resourceDomains)),
+    directive("style-src", mergeSources(profile.styleSrc, resourceDomains)),
+    directive("img-src", mergeSources(profile.imgSrc, resourceDomains)),
+    directive("font-src", mergeSources(profile.fontSrc, resourceDomains)),
+    directive("media-src", mergeSources(profile.mediaSrc, resourceDomains)),
+    directive("connect-src", mergeSources(connectBase, connectDomains)),
+    directive("frame-src", mergeSources(frameBase, frameDomains)),
+    directive("object-src", profile.objectSrc),
+    directive("base-uri", mergeSources(baseUriBase, baseUriDomains)),
   ];
 
   return directives.join("; ");
@@ -133,6 +325,15 @@ sandboxApp.get(["/", "/sandbox.html"], (req, res) => {
 
   // Set CSP via HTTP header - tamper-proof unlike meta tags
   const cspHeader = buildCspHeader(cspConfig);
+  const profile = SANDBOX_CSP_PROFILES[SANDBOX_CSP_MODE];
+  console.info(
+    "[Sandbox] Applying CSP",
+    `mode=${SANDBOX_CSP_MODE}`,
+    cspConfig ? "(from ui.csp metadata)" : "(from profile default)",
+    `profile=${profile.description}`,
+    cspHeader,
+  );
+  res.setHeader("X-MCP-Sandbox-CSP-Mode", SANDBOX_CSP_MODE);
   res.setHeader("Content-Security-Policy", cspHeader);
 
   // Prevent caching to ensure fresh CSP on each load
@@ -162,6 +363,14 @@ sandboxApp.listen(SANDBOX_PORT, (err) => {
     process.exit(1);
   }
   console.log(`Sandbox server: http://localhost:${SANDBOX_PORT}`);
+  console.log(
+    `[Sandbox] CSP mode: ${SANDBOX_CSP_MODE} (${SANDBOX_CSP_PROFILES[SANDBOX_CSP_MODE].description})`,
+  );
+  if (SANDBOX_CSP_MODE === "dangerouslyAllow") {
+    console.warn(
+      "[Sandbox] WARNING: dangerouslyAllow mode is non-spec and should only be used for local prototyping.",
+    );
+  }
   maybeLaunchBrowser();
   console.log("\nPress Ctrl+C to stop\n");
 });

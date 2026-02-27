@@ -86,6 +86,7 @@ func newRootCmdWithOptions(opts *rootOptions) *cobra.Command {
 		newCallCmd(opts),
 		newSelectCmd(opts),
 		newReorderCmd(opts),
+		newLayoutCmd(opts),
 	)
 
 	return cmd
@@ -335,6 +336,46 @@ func newReorderCmd(opts *rootOptions) *cobra.Command {
 	cmd.Flags().StringVar(&idempotencyKey, "idempotency-key", "", "Reuse key to make retries idempotent")
 	_ = cmd.MarkFlagRequired("room")
 	_ = cmd.MarkFlagRequired("order")
+
+	return cmd
+}
+
+func newLayoutCmd(opts *rootOptions) *cobra.Command {
+	var roomID string
+	var adapter string
+	var opsJSON string
+	var idempotencyKey string
+
+	cmd := &cobra.Command{
+		Use:   "layout --room <room-id> --ops '[{\"op\":\"swap\",\"first\":\"inst-1\",\"second\":\"inst-2\"}]'",
+		Short: "Apply layout operations to mounted containers",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			ops, err := parse.JSONArrayObjects(opsJSON)
+			if err != nil {
+				return err
+			}
+			if len(ops) == 0 {
+				return errors.New("--ops must include at least one operation")
+			}
+
+			command := map[string]any{
+				"type":    "layout",
+				"adapter": adapter,
+				"ops":     ops,
+			}
+
+			return runWithClient(opts, func(ctx context.Context, client *roomd.Client) (roomd.Envelope, error) {
+				return client.Command(ctx, roomID, resolveIdempotencyKey(idempotencyKey), command)
+			})
+		},
+	}
+
+	cmd.Flags().StringVar(&roomID, "room", "", "Room ID")
+	cmd.Flags().StringVar(&adapter, "adapter", "grid12", "Layout adapter")
+	cmd.Flags().StringVar(&opsJSON, "ops", "", "JSON array of layout operations")
+	cmd.Flags().StringVar(&idempotencyKey, "idempotency-key", "", "Reuse key to make retries idempotent")
+	_ = cmd.MarkFlagRequired("room")
+	_ = cmd.MarkFlagRequired("ops")
 
 	return cmd
 }
