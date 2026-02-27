@@ -15,6 +15,13 @@
     "roomd:cli": "go run ./tools/roomctl/cmd/roomctl",
     "build": "npm run --workspace services/roomd build && npm run --workspace apps/host-web build",
     "test": "npm run --workspace services/roomd test",
+    "arch:lint": "depcruise --config .dependency-cruiser.cjs --ignore-known .dependency-cruiser-known-violations.json apps services",
+    "arch:lint:strict": "depcruise --config .dependency-cruiser.cjs apps services",
+    "arch:baseline": "depcruise-baseline --config .dependency-cruiser.cjs apps services",
+    "arch:gen": "bash scripts/generate-arch.sh docs/generated",
+    "arch:check": "bash scripts/check-arch.sh",
+    "arch:render": "ARCH_RENDER=1 bash scripts/generate-arch.sh docs/generated",
+    "arch:deps:mermaid": "bash scripts/generate-arch.sh docs/generated --deps-only",
     "test:e2e": "playwright test",
     "playwright": "node scripts/playwright-cdp-shell.mjs",
     "playwright:test": "playwright test"
@@ -23,6 +30,10 @@
     "@playwright/test": "1.57.0",
     "concurrently": "^9.2.1",
     "cross-env": "^10.1.0",
-    "playwright": "1.57.0"
+    "dependency-cruiser": "^17.3.8",
+    "fast-glob": "^3.3.3",
+    "playwright": "1.57.0",
+    "ts-morph": "^27.0.2",
+    "typescript": "^5.9.3"
   }
 }

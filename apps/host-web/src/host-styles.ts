@@ -2,13 +2,13 @@
  * MCP style variables for the basic-host example.
  * These are passed to apps via hostContext.styles.variables.
  */
-import type { McpUiStyles } from "@modelcontextprotocol/ext-apps";
+export type HostStyleVariables = Record<string, string>;
 
 /**
  * MCP App style variables using light-dark() for theme adaptation.
  * Apps receive these and can use them as CSS custom properties.
  */
-export const HOST_STYLE_VARIABLES: McpUiStyles = {
+export const HOST_STYLE_VARIABLES: HostStyleVariables = {
   // Background colors - using light-dark() for automatic adaptation
   "--color-background-primary": "light-dark(#ffffff, #1a1a1a)",
   "--color-background-secondary": "light-dark(#f5f5f5, #2d2d2d)",

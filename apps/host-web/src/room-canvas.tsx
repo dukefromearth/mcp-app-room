@@ -1,21 +1,20 @@
 import {
-  AppBridge,
-  PostMessageTransport,
-  type McpUiResourceCsp,
-  type McpUiResourcePermissions,
-} from "@modelcontextprotocol/ext-apps/app-bridge";
-import {
   useEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
-import { HOST_STYLE_VARIABLES } from "./host-styles";
-import { loadSandboxProxy, log } from "./implementation";
+import {
+  connectHostAppBridge,
+  createHostAppBridge,
+  loadSandboxProxy,
+  log,
+  type HostAppBridge,
+  type HostUiResourceCsp,
+  type HostUiResourcePermissions,
+} from "./implementation";
 import styles from "./index.module.css";
-import { getTheme, onThemeChange, type Theme } from "./theme";
-
-const IMPLEMENTATION = { name: "MCP Apps Host", version: "1.0.0" };
+import { onThemeChange, type Theme } from "./theme";
 
 interface RoomMount {
   instanceId: string;
@@ -62,8 +61,8 @@ interface RoomCanvasHostProps {
 interface UiResource {
   uiResourceUri: string;
   html: string;
-  csp?: McpUiResourceCsp;
-  permissions?: McpUiResourcePermissions;
+  csp?: HostUiResourceCsp;
+  permissions?: HostUiResourcePermissions;
 }
 
 export function RoomCanvasHost({ config }: RoomCanvasHostProps) {
@@ -188,7 +187,7 @@ interface RoomAppInstanceProps {
 
 function RoomAppInstance({ roomdUrl, roomId, mount, invocation }: RoomAppInstanceProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
-  const appBridgeRef = useRef<AppBridge | null>(null);
+  const appBridgeRef = useRef<HostAppBridge | null>(null);
   const [bridgeReady, setBridgeReady] = useState(false);
   const [resource, setResource] = useState<UiResource | null>(null);
   const sentInputInvocationRef = useRef<string | null>(null);
@@ -220,28 +219,10 @@ function RoomAppInstance({ roomdUrl, roomId, mount, invocation }: RoomAppInstanc
         return;
       }
 
-      const appBridge = new AppBridge(
-        null,
-        IMPLEMENTATION,
-        {
-          openLinks: {},
-          serverTools: capabilities?.tools ? {} : undefined,
-          serverResources: capabilities?.resources ? {} : undefined,
-          updateModelContext: { text: {} },
-        },
-        {
-          hostContext: {
-            theme: getTheme(),
-            platform: "web",
-            styles: {
-              variables: HOST_STYLE_VARIABLES,
-            },
-            containerDimensions: { maxHeight: 6000 },
-            displayMode: "inline",
-            availableDisplayModes: ["inline", "fullscreen"],
-          },
-        },
-      );
+      const appBridge = createHostAppBridge({
+        hasTools: Boolean(capabilities?.tools),
+        hasResources: Boolean(capabilities?.resources),
+      });
 
       appBridge.onmessage = async (params) => {
         log.info("Message from MCP App:", params);
@@ -314,9 +295,7 @@ function RoomAppInstance({ roomdUrl, roomId, mount, invocation }: RoomAppInstanc
 
       const appInitialized = waitForInitialized(appBridge);
 
-      await appBridge.connect(
-        new PostMessageTransport(iframe.contentWindow!, iframe.contentWindow!),
-      );
+      await connectHostAppBridge(appBridge, iframe);
 
       await appBridge.sendSandboxResourceReady({
         html: fetched.html,
@@ -393,7 +372,7 @@ function RoomAppInstance({ roomdUrl, roomId, mount, invocation }: RoomAppInstanc
   );
 }
 
-async function waitForInitialized(appBridge: AppBridge): Promise<void> {
+async function waitForInitialized(appBridge: HostAppBridge): Promise<void> {
   const original = appBridge.oninitialized;
   return new Promise<void>((resolve) => {
     appBridge.oninitialized = (...args) => {

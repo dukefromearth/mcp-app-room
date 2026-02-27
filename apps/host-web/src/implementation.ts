@@ -1,4 +1,4 @@
-import { RESOURCE_MIME_TYPE, getToolUiResourceUri, type McpUiSandboxProxyReadyNotification, AppBridge, PostMessageTransport, type McpUiResourceCsp, type McpUiResourcePermissions, McpUiResourceMetaSchema, buildAllowAttribute, type McpUiUpdateModelContextRequest, type McpUiMessageRequest } from "@modelcontextprotocol/ext-apps/app-bridge";
+import { RESOURCE_MIME_TYPE, getToolUiResourceUri, type McpUiSandboxProxyReadyNotification, AppBridge, PostMessageTransport, type McpUiResourceCsp, type McpUiResourcePermissions, type McpUiStyles, McpUiResourceMetaSchema, buildAllowAttribute, type McpUiUpdateModelContextRequest, type McpUiMessageRequest } from "@modelcontextprotocol/ext-apps/app-bridge";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -9,6 +9,7 @@ import { HOST_STYLE_VARIABLES } from "./host-styles";
 
 const SANDBOX_PROXY_BASE_URL = "http://localhost:8081/sandbox.html";
 const IMPLEMENTATION = { name: "MCP Apps Host", version: "1.0.0" };
+const HOST_UI_STYLES = HOST_STYLE_VARIABLES as unknown as McpUiStyles;
 
 
 export const log = {
@@ -72,6 +73,15 @@ interface UiResourceData {
   html: string;
   csp?: McpUiResourceCsp;
   permissions?: McpUiResourcePermissions;
+}
+
+export type HostUiResourceCsp = McpUiResourceCsp;
+export type HostUiResourcePermissions = McpUiResourcePermissions;
+export type HostAppBridge = AppBridge;
+
+interface HostBridgeCapabilities {
+  hasTools: boolean;
+  hasResources: boolean;
 }
 
 interface ResourceMetaContainer {
@@ -232,6 +242,42 @@ export function loadSandboxProxy(
   return readyPromise;
 }
 
+export function createHostAppBridge(
+  capabilities: HostBridgeCapabilities,
+): HostAppBridge {
+  return new AppBridge(
+    null,
+    IMPLEMENTATION,
+    {
+      openLinks: {},
+      serverTools: capabilities.hasTools ? {} : undefined,
+      serverResources: capabilities.hasResources ? {} : undefined,
+      updateModelContext: { text: {} },
+    },
+    {
+      hostContext: {
+        theme: getTheme(),
+        platform: "web",
+        styles: {
+          variables: HOST_UI_STYLES,
+        },
+        containerDimensions: { maxHeight: 6000 },
+        displayMode: "inline",
+        availableDisplayModes: ["inline", "fullscreen"],
+      },
+    },
+  );
+}
+
+export function connectHostAppBridge(
+  appBridge: HostAppBridge,
+  iframe: HTMLIFrameElement,
+): Promise<void> {
+  return appBridge.connect(
+    new PostMessageTransport(iframe.contentWindow!, iframe.contentWindow!),
+  );
+}
+
 
 export async function initializeApp(
   iframe: HTMLIFrameElement,
@@ -326,7 +372,7 @@ export function newAppBridge(
       theme: getTheme(),
       platform: "web",
       styles: {
-        variables: HOST_STYLE_VARIABLES,
+        variables: HOST_UI_STYLES,
       },
       containerDimensions: options?.containerDimensions ?? { maxHeight: 6000 },
       displayMode: options?.displayMode ?? "inline",
