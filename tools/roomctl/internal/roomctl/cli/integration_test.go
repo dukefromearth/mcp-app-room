@@ -240,6 +240,103 @@ func TestLayoutCommandIntegration(t *testing.T) {
 	}
 }
 
+func TestToolCallCommandIntegration(t *testing.T) {
+	t.Parallel()
+
+	var gotMethod string
+	var gotPath string
+	var decodeErr error
+	var gotBody struct {
+		Name      string         `json:"name"`
+		Arguments map[string]any `json:"arguments"`
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		decodeErr = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"value":1}}`))
+	}))
+	defer server.Close()
+
+	env := runCommand(
+		t,
+		server.URL,
+		"tool-call",
+		"--room", "demo",
+		"--instance", "inst-1",
+		"--name", "video_get_state",
+		"--arguments", `{"sessionId":"s-1"}`,
+	)
+
+	if gotMethod != http.MethodPost {
+		t.Fatalf("method=%s want=%s", gotMethod, http.MethodPost)
+	}
+	if gotPath != "/rooms/demo/instances/inst-1/tools/call" {
+		t.Fatalf("path=%s want=/rooms/demo/instances/inst-1/tools/call", gotPath)
+	}
+	if decodeErr != nil {
+		t.Fatalf("decode request body: %v", decodeErr)
+	}
+	if gotBody.Name != "video_get_state" {
+		t.Fatalf("name=%q want=video_get_state", gotBody.Name)
+	}
+	if gotBody.Arguments["sessionId"] != "s-1" {
+		t.Fatalf("arguments=%v want sessionId=s-1", gotBody.Arguments)
+	}
+	if env.Status != http.StatusOK {
+		t.Fatalf("status=%d want=%d", env.Status, http.StatusOK)
+	}
+}
+
+func TestStateGetCommandIntegration(t *testing.T) {
+	t.Parallel()
+
+	var gotMethod string
+	var gotPath string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"state":{"invocations":[{"result":{"structuredContent":{"sessionId":"abc-123"}}}]}}`))
+	}))
+	defer server.Close()
+
+	env := runCommand(
+		t,
+		server.URL,
+		"state-get",
+		"--room", "demo",
+		"--path", "state.invocations.0.result.structuredContent.sessionId",
+	)
+
+	if gotMethod != http.MethodGet {
+		t.Fatalf("method=%s want=%s", gotMethod, http.MethodGet)
+	}
+	if gotPath != "/rooms/demo/state" {
+		t.Fatalf("path=%s want=/rooms/demo/state", gotPath)
+	}
+	if env.Status != http.StatusOK {
+		t.Fatalf("status=%d want=%d", env.Status, http.StatusOK)
+	}
+
+	body, ok := env.Body.(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected body type: %T", env.Body)
+	}
+	if body["path"] != "state.invocations.0.result.structuredContent.sessionId" {
+		t.Fatalf("path=%v", body["path"])
+	}
+	if body["found"] != true {
+		t.Fatalf("found=%v want=true", body["found"])
+	}
+	if body["value"] != "abc-123" {
+		t.Fatalf("value=%v want=abc-123", body["value"])
+	}
+}
+
 func runCommand(t *testing.T, baseURL string, args ...string) roomd.Envelope {
 	t.Helper()
 

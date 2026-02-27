@@ -1,4 +1,4 @@
-import { RESOURCE_MIME_TYPE, getToolUiResourceUri, type McpUiSandboxProxyReadyNotification, AppBridge, PostMessageTransport, type McpUiResourceCsp, type McpUiResourcePermissions, buildAllowAttribute, type McpUiUpdateModelContextRequest, type McpUiMessageRequest } from "@modelcontextprotocol/ext-apps/app-bridge";
+import { RESOURCE_MIME_TYPE, getToolUiResourceUri, type McpUiSandboxProxyReadyNotification, AppBridge, PostMessageTransport, type McpUiResourceCsp, type McpUiResourcePermissions, McpUiResourceMetaSchema, buildAllowAttribute, type McpUiUpdateModelContextRequest, type McpUiMessageRequest } from "@modelcontextprotocol/ext-apps/app-bridge";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -74,6 +74,16 @@ interface UiResourceData {
   permissions?: McpUiResourcePermissions;
 }
 
+interface ResourceMetaContainer {
+  _meta?: { ui?: unknown };
+  meta?: { ui?: unknown };
+}
+
+type UiResourceMeta = {
+  csp?: McpUiResourceCsp;
+  permissions?: McpUiResourcePermissions;
+};
+
 export interface ToolCallInfo {
   serverInfo: ServerInfo;
   tool: Tool;
@@ -134,25 +144,49 @@ async function getUiResource(serverInfo: ServerInfo, uri: string): Promise<UiRes
 
   const html = "blob" in content ? atob(content.blob) : content.text;
 
-  // Extract CSP and permissions metadata, preferring content-level (resources/read)
-  // and falling back to listing-level (resources/list) per the spec
-  log.info("Resource content keys:", Object.keys(content));
-  log.info("Resource content._meta:", (content as any)._meta);
-
-  // Try both _meta (spec) and meta (Python SDK quirk) for content-level
-  const contentMeta = (content as any)._meta || (content as any).meta;
-
-  // Get listing-level metadata as fallback
+  // Per spec, content-level metadata from resources/read takes precedence over
+  // listing-level metadata from resources/list.
+  const contentMeta = parseUiResourceMeta(
+    readUiResourceMetaCandidate(content as ResourceMetaContainer),
+    "content-level"
+  );
   const listingResource = serverInfo.resources.get(uri);
-  const listingMeta = (listingResource as any)?._meta;
-  log.info("Resource listing._meta:", listingMeta);
+  const listingMeta = parseUiResourceMeta(
+    readUiResourceMetaCandidate(listingResource as ResourceMetaContainer | undefined),
+    "listing-level"
+  );
+  const uiMeta = contentMeta ?? listingMeta;
 
-  // Content-level takes precedence, fall back to listing-level
-  const uiMeta = contentMeta?.ui ?? listingMeta?.ui;
-  const csp = uiMeta?.csp;
-  const permissions = uiMeta?.permissions;
+  return { html, csp: uiMeta?.csp, permissions: uiMeta?.permissions };
+}
 
-  return { html, csp, permissions };
+/**
+ * Read `ui` metadata from MCP resource metadata containers.
+ *
+ * Supports both `_meta` (spec-compliant) and `meta` (legacy Python SDK quirk).
+ */
+function readUiResourceMetaCandidate(resource: ResourceMetaContainer | undefined): unknown {
+  return resource?._meta?.ui ?? resource?.meta?.ui;
+}
+
+/**
+ * Parse UI resource metadata using the ext-apps schema.
+ *
+ * Invalid metadata is ignored instead of failing resource loading so hosts
+ * stay compatible with mixed-quality server implementations.
+ */
+function parseUiResourceMeta(rawMeta: unknown, level: "content-level" | "listing-level"): UiResourceMeta | undefined {
+  if (rawMeta === undefined) {
+    return undefined;
+  }
+
+  const parsed = McpUiResourceMetaSchema.safeParse(rawMeta);
+  if (!parsed.success) {
+    log.warn(`Ignoring invalid ${level} UI metadata:`, parsed.error.message);
+    return undefined;
+  }
+
+  return parsed.data;
 }
 
 

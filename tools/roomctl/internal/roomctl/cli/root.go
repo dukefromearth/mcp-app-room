@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -79,11 +80,18 @@ func newRootCmdWithOptions(opts *rootOptions) *cobra.Command {
 		newHealthCmd(opts),
 		newCreateCmd(opts),
 		newStateCmd(opts),
+		newStateGetCmd(opts),
 		newMountCmd(opts),
 		newLifecycleCmd(opts, "hide"),
 		newLifecycleCmd(opts, "show"),
 		newLifecycleCmd(opts, "unmount"),
 		newCallCmd(opts),
+		newInstanceToolCallCmd(opts),
+		newInstanceCapabilitiesCmd(opts),
+		newInstanceResourcesListCmd(opts),
+		newInstanceResourceReadCmd(opts),
+		newInstanceResourceTemplatesListCmd(opts),
+		newInstancePromptsListCmd(opts),
 		newSelectCmd(opts),
 		newReorderCmd(opts),
 		newLayoutCmd(opts),
@@ -137,6 +145,47 @@ func newStateCmd(opts *rootOptions) *cobra.Command {
 
 	cmd.Flags().StringVar(&roomID, "room", "", "Room ID")
 	_ = cmd.MarkFlagRequired("room")
+	return cmd
+}
+
+func newStateGetCmd(opts *rootOptions) *cobra.Command {
+	var roomID string
+	var valuePath string
+	var optional bool
+
+	cmd := &cobra.Command{
+		Use:   "state-get --room <room-id> --path state.mounts.0.instanceId",
+		Short: "Get a nested value from room state by dot path",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return runWithClient(opts, func(ctx context.Context, client *roomd.Client) (roomd.Envelope, error) {
+				env, err := client.State(ctx, roomID)
+				if err != nil {
+					return roomd.Envelope{}, err
+				}
+
+				value, found := lookupByPath(env.Body, valuePath)
+				if !found && !optional {
+					return roomd.Envelope{}, fmt.Errorf("path not found: %s", valuePath)
+				}
+
+				return roomd.Envelope{
+					Status: env.Status,
+					Body: map[string]any{
+						"ok":    env.Status >= 200 && env.Status < 300,
+						"path":  valuePath,
+						"found": found,
+						"value": value,
+					},
+				}, nil
+			})
+		},
+	}
+
+	cmd.Flags().StringVar(&roomID, "room", "", "Room ID")
+	cmd.Flags().StringVar(&valuePath, "path", "", "Dot path into response body")
+	cmd.Flags().BoolVar(&optional, "optional", false, "Return null when path does not exist")
+	_ = cmd.MarkFlagRequired("room")
+	_ = cmd.MarkFlagRequired("path")
 	return cmd
 }
 
@@ -378,6 +427,179 @@ func newLayoutCmd(opts *rootOptions) *cobra.Command {
 	_ = cmd.MarkFlagRequired("ops")
 
 	return cmd
+}
+
+func newInstanceToolCallCmd(opts *rootOptions) *cobra.Command {
+	var roomID string
+	var instanceID string
+	var name string
+	var arguments string
+
+	cmd := &cobra.Command{
+		Use:   "tool-call --room <room-id> --instance <instance-id> --name <tool-name> [--arguments '{\"k\":1}']",
+		Short: "Call a tool through a mounted instance endpoint",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			obj, err := parse.JSONObject(arguments)
+			if err != nil {
+				return err
+			}
+			return runWithClient(opts, func(ctx context.Context, client *roomd.Client) (roomd.Envelope, error) {
+				return client.InstanceToolCall(ctx, roomID, instanceID, name, obj)
+			})
+		},
+	}
+
+	cmd.Flags().StringVar(&roomID, "room", "", "Room ID")
+	cmd.Flags().StringVar(&instanceID, "instance", "", "Mount instance ID")
+	cmd.Flags().StringVar(&name, "name", "", "Tool name")
+	cmd.Flags().StringVar(&arguments, "arguments", "{}", "Tool arguments as JSON object")
+	_ = cmd.MarkFlagRequired("room")
+	_ = cmd.MarkFlagRequired("instance")
+	_ = cmd.MarkFlagRequired("name")
+	return cmd
+}
+
+func newInstanceCapabilitiesCmd(opts *rootOptions) *cobra.Command {
+	var roomID string
+	var instanceID string
+
+	cmd := &cobra.Command{
+		Use:   "capabilities --room <room-id> --instance <instance-id>",
+		Short: "Read server capabilities for a mounted instance",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return runWithClient(opts, func(ctx context.Context, client *roomd.Client) (roomd.Envelope, error) {
+				return client.InstanceCapabilities(ctx, roomID, instanceID)
+			})
+		},
+	}
+
+	cmd.Flags().StringVar(&roomID, "room", "", "Room ID")
+	cmd.Flags().StringVar(&instanceID, "instance", "", "Mount instance ID")
+	_ = cmd.MarkFlagRequired("room")
+	_ = cmd.MarkFlagRequired("instance")
+	return cmd
+}
+
+func newInstanceResourcesListCmd(opts *rootOptions) *cobra.Command {
+	var roomID string
+	var instanceID string
+	var cursor string
+
+	cmd := &cobra.Command{
+		Use:   "resources-list --room <room-id> --instance <instance-id> [--cursor <cursor>]",
+		Short: "List resources from a mounted instance",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return runWithClient(opts, func(ctx context.Context, client *roomd.Client) (roomd.Envelope, error) {
+				return client.InstanceResourcesList(ctx, roomID, instanceID, cursor)
+			})
+		},
+	}
+
+	cmd.Flags().StringVar(&roomID, "room", "", "Room ID")
+	cmd.Flags().StringVar(&instanceID, "instance", "", "Mount instance ID")
+	cmd.Flags().StringVar(&cursor, "cursor", "", "Pagination cursor")
+	_ = cmd.MarkFlagRequired("room")
+	_ = cmd.MarkFlagRequired("instance")
+	return cmd
+}
+
+func newInstanceResourceReadCmd(opts *rootOptions) *cobra.Command {
+	var roomID string
+	var instanceID string
+	var uri string
+
+	cmd := &cobra.Command{
+		Use:   "resources-read --room <room-id> --instance <instance-id> --uri <uri>",
+		Short: "Read a resource from a mounted instance",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return runWithClient(opts, func(ctx context.Context, client *roomd.Client) (roomd.Envelope, error) {
+				return client.InstanceResourceRead(ctx, roomID, instanceID, uri)
+			})
+		},
+	}
+
+	cmd.Flags().StringVar(&roomID, "room", "", "Room ID")
+	cmd.Flags().StringVar(&instanceID, "instance", "", "Mount instance ID")
+	cmd.Flags().StringVar(&uri, "uri", "", "Resource URI")
+	_ = cmd.MarkFlagRequired("room")
+	_ = cmd.MarkFlagRequired("instance")
+	_ = cmd.MarkFlagRequired("uri")
+	return cmd
+}
+
+func newInstanceResourceTemplatesListCmd(opts *rootOptions) *cobra.Command {
+	var roomID string
+	var instanceID string
+	var cursor string
+
+	cmd := &cobra.Command{
+		Use:   "resource-templates-list --room <room-id> --instance <instance-id> [--cursor <cursor>]",
+		Short: "List resource templates from a mounted instance",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return runWithClient(opts, func(ctx context.Context, client *roomd.Client) (roomd.Envelope, error) {
+				return client.InstanceResourceTemplatesList(ctx, roomID, instanceID, cursor)
+			})
+		},
+	}
+
+	cmd.Flags().StringVar(&roomID, "room", "", "Room ID")
+	cmd.Flags().StringVar(&instanceID, "instance", "", "Mount instance ID")
+	cmd.Flags().StringVar(&cursor, "cursor", "", "Pagination cursor")
+	_ = cmd.MarkFlagRequired("room")
+	_ = cmd.MarkFlagRequired("instance")
+	return cmd
+}
+
+func newInstancePromptsListCmd(opts *rootOptions) *cobra.Command {
+	var roomID string
+	var instanceID string
+	var cursor string
+
+	cmd := &cobra.Command{
+		Use:   "prompts-list --room <room-id> --instance <instance-id> [--cursor <cursor>]",
+		Short: "List prompts from a mounted instance",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return runWithClient(opts, func(ctx context.Context, client *roomd.Client) (roomd.Envelope, error) {
+				return client.InstancePromptsList(ctx, roomID, instanceID, cursor)
+			})
+		},
+	}
+
+	cmd.Flags().StringVar(&roomID, "room", "", "Room ID")
+	cmd.Flags().StringVar(&instanceID, "instance", "", "Mount instance ID")
+	cmd.Flags().StringVar(&cursor, "cursor", "", "Pagination cursor")
+	_ = cmd.MarkFlagRequired("room")
+	_ = cmd.MarkFlagRequired("instance")
+	return cmd
+}
+
+func lookupByPath(root any, valuePath string) (any, bool) {
+	current := root
+	segments := strings.Split(valuePath, ".")
+	for _, segment := range segments {
+		if strings.TrimSpace(segment) == "" {
+			return nil, false
+		}
+
+		switch typed := current.(type) {
+		case map[string]any:
+			next, ok := typed[segment]
+			if !ok {
+				return nil, false
+			}
+			current = next
+		case []any:
+			index, err := strconv.Atoi(segment)
+			if err != nil || index < 0 || index >= len(typed) {
+				return nil, false
+			}
+			current = typed[index]
+		default:
+			return nil, false
+		}
+	}
+
+	return current, true
 }
 
 func runWithClient(opts *rootOptions, run func(ctx context.Context, client *roomd.Client) (roomd.Envelope, error)) error {

@@ -1,6 +1,7 @@
 import {
   RESOURCE_MIME_TYPE,
   getToolUiResourceUri,
+  McpUiResourceMetaSchema,
   type McpUiResourceCsp,
   type McpUiResourcePermissions,
 } from "@modelcontextprotocol/ext-apps/app-bridge";
@@ -16,6 +17,16 @@ import type {
 } from "./types";
 
 const IMPLEMENTATION = { name: "roomd", version: "0.1.0" };
+
+interface ResourceMetaContainer {
+  _meta?: { ui?: unknown };
+  meta?: { ui?: unknown };
+}
+
+type UiResourceMeta = {
+  csp?: McpUiResourceCsp;
+  permissions?: McpUiResourcePermissions;
+};
 
 async function connectWithFallback(serverUrl: string): Promise<Client> {
   const url = new URL(serverUrl);
@@ -78,12 +89,12 @@ class RealMcpSession implements McpSession {
         ? Buffer.from(content.blob, "base64").toString("utf8")
         : content.text;
 
-    const contentMeta = (content as { _meta?: { ui?: unknown } })._meta;
+    const contentMeta = parseUiResourceMeta(
+      readUiResourceMetaCandidate(content as ResourceMetaContainer),
+      "content-level"
+    );
     const listingMeta = await this.readResourceListingMeta(uri);
-    const uiMeta =
-      (contentMeta?.ui as
-        | { csp?: McpUiResourceCsp; permissions?: McpUiResourcePermissions }
-        | undefined) ?? listingMeta;
+    const uiMeta = contentMeta ?? listingMeta;
 
     return {
       uiResourceUri: uri,
@@ -115,7 +126,7 @@ class RealMcpSession implements McpSession {
 
   private async readResourceListingMeta(
     uri: string,
-  ): Promise<{ csp?: McpUiResourceCsp; permissions?: McpUiResourcePermissions } | undefined> {
+  ): Promise<UiResourceMeta | undefined> {
     if (!this.resourceCache.has(uri)) {
       const listing = await this.client.listResources();
       for (const resource of listing.resources) {
@@ -123,12 +134,41 @@ class RealMcpSession implements McpSession {
       }
     }
 
-    const listingResource = this.resourceCache.get(uri);
-    const uiMeta = (listingResource as { _meta?: { ui?: unknown } } | undefined)?._meta
-      ?.ui as { csp?: McpUiResourceCsp; permissions?: McpUiResourcePermissions } | undefined;
-
-    return uiMeta;
+    const listingResource = this.resourceCache.get(uri) as ResourceMetaContainer | undefined;
+    return parseUiResourceMeta(
+      readUiResourceMetaCandidate(listingResource),
+      "listing-level"
+    );
   }
+}
+
+/**
+ * Read `ui` metadata from MCP resource metadata containers.
+ *
+ * Supports both `_meta` (spec-compliant) and `meta` (legacy Python SDK quirk).
+ */
+function readUiResourceMetaCandidate(resource: ResourceMetaContainer | undefined): unknown {
+  return resource?._meta?.ui ?? resource?.meta?.ui;
+}
+
+/**
+ * Parse UI resource metadata using ext-apps schemas.
+ *
+ * Invalid metadata is ignored so session behavior remains stable even when a
+ * server sends malformed optional metadata.
+ */
+function parseUiResourceMeta(rawMeta: unknown, level: "content-level" | "listing-level"): UiResourceMeta | undefined {
+  if (rawMeta === undefined) {
+    return undefined;
+  }
+
+  const parsed = McpUiResourceMetaSchema.safeParse(rawMeta);
+  if (!parsed.success) {
+    console.warn(`[roomd] Ignoring invalid ${level} UI metadata:`, parsed.error.message);
+    return undefined;
+  }
+
+  return parsed.data;
 }
 
 export class RealMcpSessionFactory implements McpSessionFactory {

@@ -2,7 +2,10 @@ import type {
   McpUiSandboxProxyReadyNotification,
   McpUiSandboxResourceReadyNotification,
 } from "@modelcontextprotocol/ext-apps/app-bridge";
-import { buildAllowAttribute } from "@modelcontextprotocol/ext-apps/app-bridge";
+import {
+  McpUiSandboxResourceReadyNotificationSchema,
+  buildAllowAttribute,
+} from "@modelcontextprotocol/ext-apps/app-bridge";
 
 const ALLOWED_REFERRER_PATTERN = /^http:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/;
 
@@ -87,7 +90,17 @@ window.addEventListener("message", async (event) => {
     }
 
     if (event.data && event.data.method === RESOURCE_READY_NOTIFICATION) {
-      const { html, sandbox, permissions } = event.data.params;
+      const parsed =
+        McpUiSandboxResourceReadyNotificationSchema.safeParse(event.data);
+      if (!parsed.success) {
+        console.error(
+          "[Sandbox] Rejecting invalid sandbox-resource-ready payload:",
+          parsed.error.message
+        );
+        return;
+      }
+
+      const { html, sandbox, permissions } = parsed.data.params;
       if (typeof sandbox === "string") {
         inner.setAttribute("sandbox", sandbox);
       }

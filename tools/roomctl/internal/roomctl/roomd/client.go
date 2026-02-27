@@ -66,6 +66,79 @@ func (c *Client) Command(ctx context.Context, roomID string, idempotencyKey stri
 	return c.do(ctx, http.MethodPost, "/rooms/"+url.PathEscape(roomID)+"/commands", payload)
 }
 
+func (c *Client) InstanceCapabilities(ctx context.Context, roomID string, instanceID string) (Envelope, error) {
+	endpoint := "/rooms/" + url.PathEscape(roomID) + "/instances/" + url.PathEscape(instanceID) + "/capabilities"
+	return c.do(ctx, http.MethodGet, endpoint, nil)
+}
+
+func (c *Client) InstanceToolCall(
+	ctx context.Context,
+	roomID string,
+	instanceID string,
+	name string,
+	arguments map[string]any,
+) (Envelope, error) {
+	endpoint := "/rooms/" + url.PathEscape(roomID) + "/instances/" + url.PathEscape(instanceID) + "/tools/call"
+	payload := map[string]any{
+		"name":      name,
+		"arguments": arguments,
+	}
+	return c.do(ctx, http.MethodPost, endpoint, payload)
+}
+
+func (c *Client) InstanceResourcesList(
+	ctx context.Context,
+	roomID string,
+	instanceID string,
+	cursor string,
+) (Envelope, error) {
+	endpoint := "/rooms/" + url.PathEscape(roomID) + "/instances/" + url.PathEscape(instanceID) + "/resources/list"
+	payload := map[string]any{}
+	if strings.TrimSpace(cursor) != "" {
+		payload["cursor"] = cursor
+	}
+	return c.do(ctx, http.MethodPost, endpoint, payload)
+}
+
+func (c *Client) InstanceResourceRead(
+	ctx context.Context,
+	roomID string,
+	instanceID string,
+	uri string,
+) (Envelope, error) {
+	endpoint := "/rooms/" + url.PathEscape(roomID) + "/instances/" + url.PathEscape(instanceID) + "/resources/read"
+	payload := map[string]any{"uri": uri}
+	return c.do(ctx, http.MethodPost, endpoint, payload)
+}
+
+func (c *Client) InstanceResourceTemplatesList(
+	ctx context.Context,
+	roomID string,
+	instanceID string,
+	cursor string,
+) (Envelope, error) {
+	endpoint := "/rooms/" + url.PathEscape(roomID) + "/instances/" + url.PathEscape(instanceID) + "/resources/templates/list"
+	payload := map[string]any{}
+	if strings.TrimSpace(cursor) != "" {
+		payload["cursor"] = cursor
+	}
+	return c.do(ctx, http.MethodPost, endpoint, payload)
+}
+
+func (c *Client) InstancePromptsList(
+	ctx context.Context,
+	roomID string,
+	instanceID string,
+	cursor string,
+) (Envelope, error) {
+	endpoint := "/rooms/" + url.PathEscape(roomID) + "/instances/" + url.PathEscape(instanceID) + "/prompts/list"
+	payload := map[string]any{}
+	if strings.TrimSpace(cursor) != "" {
+		payload["cursor"] = cursor
+	}
+	return c.do(ctx, http.MethodPost, endpoint, payload)
+}
+
 func (c *Client) do(ctx context.Context, method string, endpoint string, payload any) (Envelope, error) {
 	requestURL, err := c.joinPath(endpoint)
 	if err != nil {
