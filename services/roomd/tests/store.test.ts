@@ -1,39 +1,35 @@
 import { describe, expect, it } from "vitest";
-import { RoomStore, HttpError } from "../src/store";
-import type {
-  CommandEnvelope,
-  McpSession,
-  McpSessionFactory,
-  SessionToolInfo,
-} from "../src/types";
+import { HttpError, RoomStore } from "../src/store";
+import type { CommandEnvelope, McpSession, McpSessionFactory } from "../src/types";
 
 class FakeSession implements McpSession {
   constructor(
-    private readonly toolInfo: SessionToolInfo,
+    private readonly tools: Array<Record<string, unknown>>,
+    private readonly resources: Array<Record<string, unknown>>,
+    private readonly failListResources: boolean,
     private readonly onCallTool: (name: string, input: Record<string, unknown>) => Promise<unknown>,
   ) {}
 
-  async listToolInfo(_toolName: string): Promise<SessionToolInfo> {
-    return this.toolInfo;
+  async listTools(): Promise<unknown> {
+    return { tools: this.tools };
   }
 
   async callTool(name: string, input: Record<string, unknown>): Promise<unknown> {
     return this.onCallTool(name, input);
   }
 
-  async listTools(): Promise<unknown> {
-    return { tools: [this.toolInfo.tool] };
-  }
-
   async readUiResource(uri: string): Promise<{
     uiResourceUri: string;
     html: string;
   }> {
-    return { uiResourceUri: uri, html: "<html></html>" };
+    return { uiResourceUri: uri, html: `<html>${uri}</html>` };
   }
 
   async listResources(): Promise<unknown> {
-    return { resources: [] };
+    if (this.failListResources) {
+      throw new Error("resources/list unavailable");
+    }
+    return { resources: this.resources };
   }
 
   async readResource(): Promise<unknown> {
@@ -61,13 +57,49 @@ class FakeFactory implements McpSessionFactory {
   }
 }
 
-function newStore(callResult: Promise<unknown>): RoomStore {
-  const session = new FakeSession(
-    {
-      tool: { name: "debug-tool", inputSchema: { type: "object" } },
-      uiResourceUri: "ui://debug-tool/mcp-app.html",
+interface NewStoreOptions {
+  resources?: Array<Record<string, unknown>>;
+  failListResources?: boolean;
+  includeToolUiMetadata?: boolean;
+  invalidToolUiMetadata?: boolean;
+  callResult?: Promise<unknown>;
+}
+
+function newStore(options: NewStoreOptions = {}): RoomStore {
+  const debugTool: Record<string, unknown> = {
+    name: "debug-tool",
+    title: "Debug",
+    description: "Debug helper",
+    inputSchema: {
+      type: "object",
+      properties: { q: { type: "string" } },
     },
-    async () => callResult,
+  };
+  if (options.includeToolUiMetadata) {
+    debugTool._meta = { ui: { resourceUri: "ui://debug-tool/mcp-app.html" } };
+  } else if (options.invalidToolUiMetadata) {
+    debugTool._meta = { ui: { resourceUri: "https://invalid.example/app.html" } };
+  }
+
+  const session = new FakeSession(
+    [
+      debugTool,
+      {
+        name: "replace",
+        title: "Replace",
+        description: "Replace markdown",
+        inputSchema: {
+          type: "object",
+          properties: {
+            sessionId: { type: "string" },
+            markdown: { type: "string" },
+          },
+        },
+      },
+    ],
+    options.resources ?? [{ uri: "ui://debug-tool/mcp-app.html" }],
+    options.failListResources ?? false,
+    async () => options.callResult ?? Promise.resolve({ content: [] }),
   );
 
   return new RoomStore(new FakeFactory(session), {
@@ -86,7 +118,7 @@ function commandEnvelope(
 
 describe("RoomStore", () => {
   it("requires explicit room creation", () => {
-    const store = newStore(Promise.resolve({ content: [] }));
+    const store = newStore();
 
     expect(() => store.getState("demo")).toThrow(HttpError);
 
@@ -96,14 +128,13 @@ describe("RoomStore", () => {
   });
 
   it("enforces idempotency with same payload replay", async () => {
-    const store = newStore(Promise.resolve({ content: [] }));
+    const store = newStore();
     store.createRoom("demo");
 
     const envelope = commandEnvelope("cmd-1", {
       type: "mount",
       instanceId: "inst-1",
       server: "http://localhost:3001/mcp",
-      toolName: "debug-tool",
       container: { x: 0, y: 0, w: 6, h: 4 },
     });
 
@@ -111,12 +142,12 @@ describe("RoomStore", () => {
     const second = await store.applyCommand("demo", envelope);
 
     expect(first.response).toEqual(second.response);
-    expect((first.response as { revision: number }).revision).toBe(1);
+    expect(first.response.revision).toBe(1);
     expect(store.getState("demo").revision).toBe(1);
   });
 
   it("rejects idempotency key reuse with different payload", async () => {
-    const store = newStore(Promise.resolve({ content: [] }));
+    const store = newStore();
     store.createRoom("demo");
 
     await store.applyCommand(
@@ -125,7 +156,6 @@ describe("RoomStore", () => {
         type: "mount",
         instanceId: "inst-1",
         server: "http://localhost:3001/mcp",
-        toolName: "debug-tool",
         container: { x: 0, y: 0, w: 6, h: 4 },
       }),
     );
@@ -137,55 +167,84 @@ describe("RoomStore", () => {
           type: "mount",
           instanceId: "inst-2",
           server: "http://localhost:3001/mcp",
-          toolName: "debug-tool",
           container: { x: 0, y: 0, w: 6, h: 4 },
         }),
       ),
     ).rejects.toMatchObject({ statusCode: 409 });
   });
 
-  it("applies mount/hide/show/unmount lifecycle and revisions", async () => {
-    const store = newStore(Promise.resolve({ content: [] }));
+  it("mounts with a single UI candidate and persists full tool catalog", async () => {
+    const store = newStore();
     store.createRoom("demo");
 
-    await store.applyCommand(
+    const result = await store.applyCommand(
       "demo",
       commandEnvelope("cmd-mount", {
         type: "mount",
         instanceId: "inst-1",
         server: "http://localhost:3001/mcp",
-        toolName: "debug-tool",
         container: { x: 0, y: 0, w: 6, h: 4 },
       }),
     );
 
-    await store.applyCommand(
-      "demo",
-      commandEnvelope("cmd-hide", { type: "hide", instanceId: "inst-1" }),
-    );
-
-    await store.applyCommand(
-      "demo",
-      commandEnvelope("cmd-show", { type: "show", instanceId: "inst-1" }),
-    );
-
-    await store.applyCommand(
-      "demo",
-      commandEnvelope("cmd-unmount", { type: "unmount", instanceId: "inst-1" }),
-    );
-
-    const state = store.getState("demo");
-    expect(state.revision).toBe(4);
-    expect(state.mounts).toHaveLength(0);
+    expect(result.statusCode).toBe(200);
+    const mount = store.getState("demo").mounts[0];
+    expect(mount.uiResourceUri).toBe("ui://debug-tool/mcp-app.html");
+    expect(mount.tools).toHaveLength(2);
+    expect(mount.tools[0]).toMatchObject({ name: "debug-tool", title: "Debug" });
+    expect(mount.tools[1]).toMatchObject({ name: "replace", title: "Replace" });
   });
 
-  it("acks call asynchronously and updates state when result resolves", async () => {
-    let resolveCall: ((value: unknown) => void) | undefined;
-    const callResult = new Promise((resolve) => {
-      resolveCall = resolve;
+  it("allows non-UI mount when no UI candidates exist", async () => {
+    const store = newStore({
+      resources: [{ uri: "file://notes.txt", mimeType: "text/plain" }],
     });
+    store.createRoom("demo");
 
-    const store = newStore(callResult);
+    const result = await store.applyCommand(
+      "demo",
+      commandEnvelope("cmd-mount", {
+        type: "mount",
+        instanceId: "inst-1",
+        server: "http://localhost:3001/mcp",
+        container: { x: 0, y: 0, w: 6, h: 4 },
+      }),
+    );
+
+    expect(result.statusCode).toBe(200);
+    expect(store.getState("demo").mounts[0].uiResourceUri).toBeUndefined();
+  });
+
+  it("allows non-UI mount when UI candidates are ambiguous", async () => {
+    const store = newStore({
+      resources: [
+        { uri: "ui://a/mcp-app.html" },
+        { uri: "ui://b/mcp-app.html" },
+      ],
+    });
+    store.createRoom("demo");
+
+    const result = await store.applyCommand(
+      "demo",
+      commandEnvelope("cmd-mount", {
+        type: "mount",
+        instanceId: "inst-1",
+        server: "http://localhost:3001/mcp",
+        container: { x: 0, y: 0, w: 6, h: 4 },
+      }),
+    );
+
+    expect(result.statusCode).toBe(200);
+    expect(store.getState("demo").mounts[0].uiResourceUri).toBeUndefined();
+  });
+
+  it("accepts explicit uiResourceUri when it matches a candidate", async () => {
+    const store = newStore({
+      resources: [
+        { uri: "ui://a/mcp-app.html" },
+        { uri: "ui://b/mcp-app.html" },
+      ],
+    });
     store.createRoom("demo");
 
     await store.applyCommand(
@@ -194,42 +253,129 @@ describe("RoomStore", () => {
         type: "mount",
         instanceId: "inst-1",
         server: "http://localhost:3001/mcp",
-        toolName: "debug-tool",
+        container: { x: 0, y: 0, w: 6, h: 4 },
+        uiResourceUri: "ui://b/mcp-app.html",
+      }),
+    );
+
+    expect(store.getState("demo").mounts[0].uiResourceUri).toBe("ui://b/mcp-app.html");
+  });
+
+  it("rejects explicit uiResourceUri when it does not match candidates", async () => {
+    const store = newStore({
+      resources: [
+        { uri: "ui://a/mcp-app.html" },
+        { uri: "ui://b/mcp-app.html" },
+      ],
+    });
+    store.createRoom("demo");
+
+    await expect(
+      store.applyCommand(
+        "demo",
+        commandEnvelope("cmd-mount", {
+          type: "mount",
+          instanceId: "inst-1",
+          server: "http://localhost:3001/mcp",
+          container: { x: 0, y: 0, w: 6, h: 4 },
+          uiResourceUri: "ui://missing/mcp-app.html",
+        }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 422, code: "UI_RESOURCE_INVALID" });
+  });
+
+  it("reads selected mount UI resource", async () => {
+    const store = newStore({
+      resources: [
+        { uri: "ui://a/mcp-app.html" },
+        { uri: "ui://b/mcp-app.html" },
+      ],
+    });
+    store.createRoom("demo");
+
+    await store.applyCommand(
+      "demo",
+      commandEnvelope("cmd-mount", {
+        type: "mount",
+        instanceId: "inst-1",
+        server: "http://localhost:3001/mcp",
+        container: { x: 0, y: 0, w: 6, h: 4 },
+        uiResourceUri: "ui://a/mcp-app.html",
+      }),
+    );
+
+    const resource = await store.getInstanceUiResource("demo", "inst-1");
+    expect(resource.uiResourceUri).toBe("ui://a/mcp-app.html");
+    expect(resource.html).toContain("ui://a/mcp-app.html");
+  });
+
+  it("returns NO_UI_RESOURCE for mounted instances without UI", async () => {
+    const store = newStore({
+      resources: [{ uri: "file://notes.txt", mimeType: "text/plain" }],
+    });
+    store.createRoom("demo");
+
+    await store.applyCommand(
+      "demo",
+      commandEnvelope("cmd-mount", {
+        type: "mount",
+        instanceId: "inst-1",
+        server: "http://localhost:3001/mcp",
         container: { x: 0, y: 0, w: 6, h: 4 },
       }),
     );
 
-    const callResponse = await store.applyCommand(
-      "demo",
-      commandEnvelope("cmd-call", {
-        type: "call",
-        instanceId: "inst-1",
-        input: { q: 1 },
-      }),
-    );
+    await expect(
+      store.getInstanceUiResource("demo", "inst-1"),
+    ).rejects.toMatchObject({ statusCode: 404, code: "NO_UI_RESOURCE" });
+  });
 
-    expect(callResponse.statusCode).toBe(202);
-    expect(callResponse.response).toMatchObject({ ok: true, accepted: true });
-
-    const pendingState = store.getState("demo");
-    const pendingInvocation = pendingState.invocations.at(-1);
-    expect(pendingInvocation?.status).toBe("running");
-
-    resolveCall?.({ content: [{ type: "text", text: "ok" }] });
-
-    await waitFor(() => {
-      const invocation = store.getState("demo").invocations.at(-1);
-      return invocation?.status === "completed";
+  it("returns deterministic server inspection output", async () => {
+    const store = newStore({
+      resources: [
+        { uri: "ui://z/mcp-app.html" },
+        { uri: "ui://a/mcp-app.html" },
+      ],
     });
 
-    const completedInvocation = store.getState("demo").invocations.at(-1);
-    expect(completedInvocation?.result).toEqual({
-      content: [{ type: "text", text: "ok" }],
+    const inspection = await store.inspectServer("http://localhost:3001/mcp");
+
+    expect(inspection.server).toBe("http://localhost:3001/mcp");
+    expect(inspection.tools.map((tool) => tool.name)).toEqual(["debug-tool", "replace"]);
+    expect(inspection.uiCandidates).toEqual(["ui://a/mcp-app.html", "ui://z/mcp-app.html"]);
+    expect(inspection.autoMountable).toBe(false);
+    expect(inspection.recommendedUiResourceUri).toBeUndefined();
+    expect(inspection.exampleCommands.some((cmd) => cmd.includes("roomctl mount"))).toBe(true);
+  });
+
+  it("inspects from tool metadata when resources/list is unavailable", async () => {
+    const store = newStore({
+      failListResources: true,
+      includeToolUiMetadata: true,
     });
+
+    const inspection = await store.inspectServer("http://localhost:3001/mcp");
+    expect(inspection.server).toBe("http://localhost:3001/mcp");
+    expect(inspection.tools.map((tool) => tool.name)).toEqual(["debug-tool", "replace"]);
+    expect(inspection.uiCandidates).toEqual(["ui://debug-tool/mcp-app.html"]);
+    expect(inspection.autoMountable).toBe(true);
+  });
+
+  it("ignores malformed tool UI metadata during inspection", async () => {
+    const store = newStore({
+      invalidToolUiMetadata: true,
+      failListResources: true,
+    });
+
+    const inspection = await store.inspectServer("http://localhost:3001/mcp");
+    expect(inspection.server).toBe("http://localhost:3001/mcp");
+    expect(inspection.tools.map((tool) => tool.name)).toEqual(["debug-tool", "replace"]);
+    expect(inspection.uiCandidates).toEqual([]);
+    expect(inspection.autoMountable).toBe(false);
   });
 
   it("tracks direct tools/call invocations and emits state updates", async () => {
-    const store = newStore(Promise.resolve({ content: [{ type: "text", text: "ok" }] }));
+    const store = newStore({ callResult: Promise.resolve({ content: [{ type: "text", text: "ok" }] }) });
     store.createRoom("demo");
 
     await store.applyCommand(
@@ -238,7 +384,6 @@ describe("RoomStore", () => {
         type: "mount",
         instanceId: "inst-1",
         server: "http://localhost:3001/mcp",
-        toolName: "debug-tool",
         container: { x: 0, y: 0, w: 6, h: 4 },
       }),
     );
@@ -268,7 +413,7 @@ describe("RoomStore", () => {
   });
 
   it("returns snapshot-reset when replay window is unavailable", async () => {
-    const store = newStore(Promise.resolve({ content: [] }));
+    const store = newStore();
     store.createRoom("demo");
 
     await store.applyCommand(
@@ -277,7 +422,6 @@ describe("RoomStore", () => {
         type: "mount",
         instanceId: "inst-1",
         server: "http://localhost:3001/mcp",
-        toolName: "debug-tool",
         container: { x: 0, y: 0, w: 6, h: 4 },
       }),
     );
@@ -295,14 +439,3 @@ describe("RoomStore", () => {
     expect(replay[0]).toMatchObject({ type: "snapshot-reset" });
   });
 });
-
-async function waitFor(condition: () => boolean, timeoutMs = 2000): Promise<void> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    if (condition()) {
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  throw new Error("Condition not met within timeout");
-}

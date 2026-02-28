@@ -1,6 +1,5 @@
 import {
   RESOURCE_MIME_TYPE,
-  getToolUiResourceUri,
   McpUiResourceMetaSchema,
   type McpUiResourceCsp,
   type McpUiResourcePermissions,
@@ -12,7 +11,6 @@ import type { Resource } from "@modelcontextprotocol/sdk/types.js";
 import type {
   McpSession,
   McpSessionFactory,
-  SessionToolInfo,
   ToolUiResource,
 } from "./types";
 
@@ -43,30 +41,9 @@ async function connectWithFallback(serverUrl: string): Promise<Client> {
 }
 
 class RealMcpSession implements McpSession {
-  private toolCache: Map<string, SessionToolInfo> = new Map();
   private resourceCache: Map<string, Resource> = new Map();
 
   constructor(private readonly client: Client) {}
-
-  async listToolInfo(toolName: string): Promise<SessionToolInfo> {
-    if (this.toolCache.has(toolName)) {
-      return this.toolCache.get(toolName)!;
-    }
-
-    const list = await this.client.listTools();
-    for (const tool of list.tools) {
-      this.toolCache.set(tool.name, {
-        tool,
-        uiResourceUri: getToolUiResourceUri(tool),
-      });
-    }
-
-    const info = this.toolCache.get(toolName);
-    if (!info) {
-      throw new Error(`Tool not found: ${toolName}`);
-    }
-    return info;
-  }
 
   async callTool(toolName: string, input: Record<string, unknown>): Promise<unknown> {
     return this.client.callTool({ name: toolName, arguments: input });

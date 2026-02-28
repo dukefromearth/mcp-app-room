@@ -6,6 +6,7 @@ import { RealMcpSessionFactory } from "./mcp";
 import {
   commandEnvelopeSchema,
   createRoomSchema,
+  inspectServerSchema,
   sinceRevisionSchema,
 } from "./schema";
 import { HttpError, RoomStore } from "./store";
@@ -102,6 +103,16 @@ app.post("/rooms/:roomId/commands", async (req, res, next) => {
     const envelope = commandEnvelopeSchema.parse(req.body);
     const result = await store.applyCommand(roomId, envelope);
     res.status(result.statusCode).json(result.response);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/inspect/server", async (req, res, next) => {
+  try {
+    const { server } = inspectServerSchema.parse(req.body);
+    const inspection = await store.inspectServer(server);
+    res.json({ ok: true, ...inspection });
   } catch (error) {
     next(error);
   }
@@ -251,7 +262,7 @@ app.post(
 
 app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   if (error instanceof HttpError) {
-    res.status(error.statusCode).json({ ok: false, error: error.message });
+    res.status(error.statusCode).json(error.toResponseBody());
     return;
   }
 

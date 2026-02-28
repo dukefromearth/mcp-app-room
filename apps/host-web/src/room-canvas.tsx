@@ -19,10 +19,16 @@ import { onThemeChange, type Theme } from "./theme";
 interface RoomMount {
   instanceId: string;
   server: string;
-  toolName: string;
   uiResourceUri?: string;
   visible: boolean;
   container: { x: number; y: number; w: number; h: number };
+  tools: Array<{
+    name: string;
+    title?: string;
+    description?: string;
+    inputSchema: unknown;
+    uiResourceUri?: string;
+  }>;
 }
 
 interface RoomInvocation {
@@ -161,7 +167,7 @@ export function RoomCanvasHost({ config }: RoomCanvasHostProps) {
           >
             <div className={styles.roomTileHeader}>
               <span>
-                {mount.instanceId} <strong>{mount.toolName}</strong>
+                {mount.instanceId} <strong>{mount.uiResourceUri || "app instance"}</strong>
               </span>
               <span className={styles.roomTileServer}>{mount.server}</span>
             </div>
@@ -198,6 +204,11 @@ function RoomAppInstance({ roomdUrl, roomId, mount, invocation }: RoomAppInstanc
     let disposed = false;
 
     const setup = async () => {
+      if (!mount.uiResourceUri) {
+        setResource(null);
+        return;
+      }
+
       const fetched = await fetchUiResource(roomdUrl, roomId, mount.instanceId);
       if (disposed) {
         return;
@@ -327,7 +338,7 @@ function RoomAppInstance({ roomdUrl, roomId, mount, invocation }: RoomAppInstanc
       sentInputInvocationRef.current = null;
       sentResultInvocationRef.current = null;
     };
-  }, [mount.instanceId, roomId, roomdUrl]);
+  }, [mount.instanceId, mount.uiResourceUri, roomId, roomdUrl]);
 
   useEffect(() => {
     if (!bridgeReady || !appBridgeRef.current || !invocation) {
@@ -366,7 +377,13 @@ function RoomAppInstance({ roomdUrl, roomId, mount, invocation }: RoomAppInstanc
 
   return (
     <div className={styles.roomAppPanel}>
-      <iframe ref={iframeRef} title={mount.instanceId} data-testid={`instance-${mount.instanceId}`} />
+      {!mount.uiResourceUri ? (
+        <div className={styles.roomStatus} data-testid={`instance-${mount.instanceId}-no-ui`}>
+          No UI resource mounted for this instance.
+        </div>
+      ) : (
+        <iframe ref={iframeRef} title={mount.instanceId} data-testid={`instance-${mount.instanceId}`} />
+      )}
       {resourceHint && <div className={styles.roomResourceHint}>{resourceHint}</div>}
     </div>
   );

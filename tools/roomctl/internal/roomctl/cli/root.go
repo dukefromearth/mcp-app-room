@@ -81,11 +81,11 @@ func newRootCmdWithOptions(opts *rootOptions) *cobra.Command {
 		newCreateCmd(opts),
 		newStateCmd(opts),
 		newStateGetCmd(opts),
+		newInspectCmd(opts),
 		newMountCmd(opts),
 		newLifecycleCmd(opts, "hide"),
 		newLifecycleCmd(opts, "show"),
 		newLifecycleCmd(opts, "unmount"),
-		newCallCmd(opts),
 		newInstanceToolCallCmd(opts),
 		newInstanceCapabilitiesCmd(opts),
 		newInstanceToolsListCmd(opts),
@@ -190,18 +190,35 @@ func newStateGetCmd(opts *rootOptions) *cobra.Command {
 	return cmd
 }
 
+func newInspectCmd(opts *rootOptions) *cobra.Command {
+	var server string
+
+	cmd := &cobra.Command{
+		Use:   "inspect --server <url>",
+		Short: "Inspect an MCP server before mount",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return runWithClient(opts, func(ctx context.Context, client *roomd.Client) (roomd.Envelope, error) {
+				return client.InspectServer(ctx, server)
+			})
+		},
+	}
+
+	cmd.Flags().StringVar(&server, "server", "", "Upstream MCP server URL")
+	_ = cmd.MarkFlagRequired("server")
+	return cmd
+}
+
 func newMountCmd(opts *rootOptions) *cobra.Command {
 	var roomID string
 	var instanceID string
 	var server string
-	var toolName string
 	var container string
-	var input string
+	var uiResourceURI string
 	var idempotencyKey string
 
 	cmd := &cobra.Command{
-		Use:   "mount --room <room-id> --instance <instance-id> --server <url> --tool <name> --container x,y,w,h",
-		Short: "Mount an MCP tool instance into a room",
+		Use:   "mount --room <room-id> --instance <instance-id> --server <url> --container x,y,w,h [--ui-resource-uri <uri>]",
+		Short: "Mount an MCP app/server instance into a room",
 		RunE: func(_ *cobra.Command, _ []string) error {
 			parsedContainer, err := parse.Container(container)
 			if err != nil {
@@ -212,20 +229,22 @@ func newMountCmd(opts *rootOptions) *cobra.Command {
 				"type":       "mount",
 				"instanceId": instanceID,
 				"server":     server,
-				"toolName":   toolName,
 				"container":  parsedContainer,
 			}
 
-			if strings.TrimSpace(input) != "" {
-				obj, err := parse.JSONObject(input)
-				if err != nil {
-					return err
-				}
-				command["initialInput"] = obj
+			if strings.TrimSpace(uiResourceURI) != "" {
+				command["uiResourceUri"] = strings.TrimSpace(uiResourceURI)
 			}
 
 			return runWithClient(opts, func(ctx context.Context, client *roomd.Client) (roomd.Envelope, error) {
-				return client.Command(ctx, roomID, resolveIdempotencyKey(idempotencyKey), command)
+				env, err := client.Command(ctx, roomID, resolveIdempotencyKey(idempotencyKey), command)
+				if err != nil {
+					return roomd.Envelope{}, err
+				}
+				if opts.output == "pretty" {
+					printMountCommandHints(opts.stderr, env)
+				}
+				return env, nil
 			})
 		},
 	}
@@ -233,14 +252,12 @@ func newMountCmd(opts *rootOptions) *cobra.Command {
 	cmd.Flags().StringVar(&roomID, "room", "", "Room ID")
 	cmd.Flags().StringVar(&instanceID, "instance", "", "Mount instance ID")
 	cmd.Flags().StringVar(&server, "server", "", "Upstream MCP server URL")
-	cmd.Flags().StringVar(&toolName, "tool", "", "MCP tool name")
 	cmd.Flags().StringVar(&container, "container", "", "Grid container as x,y,w,h")
-	cmd.Flags().StringVar(&input, "input", "", "Initial JSON object input")
+	cmd.Flags().StringVar(&uiResourceURI, "ui-resource-uri", "", "Selected UI resource URI")
 	cmd.Flags().StringVar(&idempotencyKey, "idempotency-key", "", "Reuse key to make retries idempotent")
 	_ = cmd.MarkFlagRequired("room")
 	_ = cmd.MarkFlagRequired("instance")
 	_ = cmd.MarkFlagRequired("server")
-	_ = cmd.MarkFlagRequired("tool")
 	_ = cmd.MarkFlagRequired("container")
 
 	return cmd
@@ -268,43 +285,6 @@ func newLifecycleCmd(opts *rootOptions, commandType string) *cobra.Command {
 
 	cmd.Flags().StringVar(&roomID, "room", "", "Room ID")
 	cmd.Flags().StringVar(&instanceID, "instance", "", "Mount instance ID")
-	cmd.Flags().StringVar(&idempotencyKey, "idempotency-key", "", "Reuse key to make retries idempotent")
-	_ = cmd.MarkFlagRequired("room")
-	_ = cmd.MarkFlagRequired("instance")
-
-	return cmd
-}
-
-func newCallCmd(opts *rootOptions) *cobra.Command {
-	var roomID string
-	var instanceID string
-	var input string
-	var idempotencyKey string
-
-	cmd := &cobra.Command{
-		Use:   "call --room <room-id> --instance <instance-id> [--input '{" + `"k":1` + "}']",
-		Short: "Invoke a mounted instance",
-		RunE: func(_ *cobra.Command, _ []string) error {
-			obj, err := parse.JSONObject(input)
-			if err != nil {
-				return err
-			}
-
-			command := map[string]any{
-				"type":       "call",
-				"instanceId": instanceID,
-				"input":      obj,
-			}
-
-			return runWithClient(opts, func(ctx context.Context, client *roomd.Client) (roomd.Envelope, error) {
-				return client.Command(ctx, roomID, resolveIdempotencyKey(idempotencyKey), command)
-			})
-		},
-	}
-
-	cmd.Flags().StringVar(&roomID, "room", "", "Room ID")
-	cmd.Flags().StringVar(&instanceID, "instance", "", "Mount instance ID")
-	cmd.Flags().StringVar(&input, "input", "{}", "Input JSON object")
 	cmd.Flags().StringVar(&idempotencyKey, "idempotency-key", "", "Reuse key to make retries idempotent")
 	_ = cmd.MarkFlagRequired("room")
 	_ = cmd.MarkFlagRequired("instance")
@@ -624,6 +604,42 @@ func lookupByPath(root any, valuePath string) (any, bool) {
 	}
 
 	return current, true
+}
+
+func printMountCommandHints(out io.Writer, env roomd.Envelope) {
+	if env.Status < 400 {
+		return
+	}
+
+	body, ok := env.Body.(map[string]any)
+	if !ok {
+		return
+	}
+
+	rawCommands, ok := body["exampleCommands"]
+	if !ok {
+		return
+	}
+
+	commands, ok := rawCommands.([]any)
+	if !ok || len(commands) == 0 {
+		return
+	}
+
+	errorCode, _ := body["code"].(string)
+	if strings.TrimSpace(errorCode) == "" {
+		_, _ = fmt.Fprintln(out, "mount command failed; suggested next commands:")
+	} else {
+		_, _ = fmt.Fprintf(out, "mount command failed (%s); suggested next commands:\n", errorCode)
+	}
+
+	for _, entry := range commands {
+		commandText, ok := entry.(string)
+		if !ok || strings.TrimSpace(commandText) == "" {
+			continue
+		}
+		_, _ = fmt.Fprintf(out, "  %s\n", commandText)
+	}
 }
 
 func runWithClient(opts *rootOptions, run func(ctx context.Context, client *roomd.Client) (roomd.Envelope, error)) error {

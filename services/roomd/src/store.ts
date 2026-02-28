@@ -12,7 +12,9 @@ import type {
   RoomEvent,
   RoomInvocation,
   RoomMount,
+  RoomMountTool,
   RoomState,
+  ServerInspection,
   ToolUiResource,
 } from "./types";
 
@@ -41,6 +43,16 @@ interface CommandExecutionResult {
   response: CommandSuccessResponse;
 }
 
+interface ParsedToolsPage {
+  tools: RoomMountTool[];
+  nextCursor?: string;
+}
+
+interface ParsedResourcesPage {
+  resources: Array<{ uri: string; mimeType?: string }>;
+  nextCursor?: string;
+}
+
 interface LayoutAdapter {
   readonly name: LayoutAdapterName;
   normalize(container: GridContainer): GridContainer;
@@ -62,13 +74,37 @@ const grid12LayoutAdapter: LayoutAdapter = {
   },
 };
 
+const INSPECTION_ROOM_ID = "__inspect__";
+const RESOURCE_MIME_TYPE = "text/html;profile=mcp-app";
+const RESOURCE_URI_META_KEY = "ui/resourceUri";
+
+interface HttpErrorOptions {
+  code?: string;
+  details?: Record<string, unknown>;
+}
+
 export class HttpError extends Error {
+  readonly code?: string;
+  readonly details: Record<string, unknown>;
+
   constructor(
     readonly statusCode: number,
     message: string,
+    options: HttpErrorOptions = {},
   ) {
     super(message);
     this.name = "HttpError";
+    this.code = options.code;
+    this.details = options.details ?? {};
+  }
+
+  toResponseBody(): Record<string, unknown> {
+    return {
+      ok: false,
+      error: this.message,
+      ...(this.code ? { code: this.code } : {}),
+      ...this.details,
+    };
   }
 }
 
@@ -216,24 +252,20 @@ export class RoomStore {
     const mount = this.requireMount(room, instanceId);
     const session = await this.getSession(roomId, mount.server);
 
-    let uiResourceUri = mount.uiResourceUri;
-    if (!uiResourceUri) {
-      const info = await session.listToolInfo(mount.toolName);
-      uiResourceUri = info.uiResourceUri;
-      if (uiResourceUri) {
-        mount.uiResourceUri = uiResourceUri;
-        this.commit(room, "resolve-ui-uri");
-      }
-    }
-
-    if (!uiResourceUri) {
+    if (!mount.uiResourceUri) {
       throw new HttpError(
         404,
-        `No UI resource URI available for instance ${instanceId}`,
+        `Mounted instance ${instanceId} has no UI resource`,
+        { code: "NO_UI_RESOURCE" },
       );
     }
 
-    return session.readUiResource(uiResourceUri);
+    return session.readUiResource(mount.uiResourceUri);
+  }
+
+  async inspectServer(serverUrl: string): Promise<ServerInspection> {
+    this.assertServerAllowed(serverUrl);
+    return this.inspectServerWithSession(INSPECTION_ROOM_ID, serverUrl);
   }
 
   async getInstanceCapabilities(
@@ -338,6 +370,142 @@ export class RoomStore {
     return session.listPrompts({ cursor });
   }
 
+  private async inspectServerWithSession(
+    roomId: string,
+    serverUrl: string,
+  ): Promise<ServerInspection> {
+    this.assertServerAllowed(serverUrl);
+    const session = await this.getSession(roomId, serverUrl);
+    const tools = await this.collectToolCatalog(session);
+    const resources = await this.collectResourcesBestEffort(session);
+
+    const uiCandidateSet = new Set<string>();
+    for (const tool of tools) {
+      if (tool.uiResourceUri) {
+        uiCandidateSet.add(tool.uiResourceUri);
+      }
+    }
+    for (const resource of resources) {
+      if (isUiCandidateResource(resource)) {
+        uiCandidateSet.add(resource.uri);
+      }
+    }
+
+    const uiCandidates = [...uiCandidateSet].sort((left, right) =>
+      left.localeCompare(right),
+    );
+    const autoMountable = uiCandidates.length === 1;
+    const recommendedUiResourceUri = autoMountable ? uiCandidates[0] : undefined;
+
+    return {
+      server: serverUrl,
+      tools,
+      uiCandidates,
+      autoMountable,
+      recommendedUiResourceUri,
+      exampleCommands: buildExampleCommands(serverUrl, uiCandidates),
+    };
+  }
+
+  private async collectToolCatalog(session: McpSession): Promise<RoomMountTool[]> {
+    const toolsByName = new Map<string, RoomMountTool>();
+    const visitedCursors = new Set<string>();
+    let cursor: string | undefined;
+
+    while (true) {
+      const page = parseToolsPage(
+        await session.listTools(cursor ? { cursor } : undefined),
+      );
+      for (const tool of page.tools) {
+        if (!toolsByName.has(tool.name)) {
+          toolsByName.set(tool.name, tool);
+        }
+      }
+
+      if (!page.nextCursor || visitedCursors.has(page.nextCursor)) {
+        break;
+      }
+
+      visitedCursors.add(page.nextCursor);
+      cursor = page.nextCursor;
+    }
+
+    return [...toolsByName.values()].sort((left, right) =>
+      left.name.localeCompare(right.name),
+    );
+  }
+
+  private async collectResourcesBestEffort(
+    session: McpSession,
+  ): Promise<Array<{ uri: string; mimeType?: string }>> {
+    try {
+      return await this.collectResources(session);
+    } catch {
+      // GOTCHA: resources/list can be unsupported or disabled; inspection should still return tool-derived data.
+      return [];
+    }
+  }
+
+  private async collectResources(
+    session: McpSession,
+  ): Promise<Array<{ uri: string; mimeType?: string }>> {
+    const resourcesByUri = new Map<string, { uri: string; mimeType?: string }>();
+    const visitedCursors = new Set<string>();
+    let cursor: string | undefined;
+
+    while (true) {
+      const page = parseResourcesPage(
+        await session.listResources(cursor ? { cursor } : undefined),
+      );
+      for (const resource of page.resources) {
+        if (!resourcesByUri.has(resource.uri)) {
+          resourcesByUri.set(resource.uri, resource);
+        }
+      }
+
+      if (!page.nextCursor || visitedCursors.has(page.nextCursor)) {
+        break;
+      }
+
+      visitedCursors.add(page.nextCursor);
+      cursor = page.nextCursor;
+    }
+
+    return [...resourcesByUri.values()].sort((left, right) =>
+      left.uri.localeCompare(right.uri),
+    );
+  }
+
+  private selectMountUiResourceUri(
+    command: Extract<RoomCommand, { type: "mount" }>,
+    inspection: ServerInspection,
+  ): string | undefined {
+    if (command.uiResourceUri) {
+      if (
+        inspection.uiCandidates.length > 0 &&
+        !inspection.uiCandidates.includes(command.uiResourceUri)
+      ) {
+        throw new HttpError(
+          422,
+          `UI resource URI is not available from server ${command.server}: ${command.uiResourceUri}`,
+          {
+            code: "UI_RESOURCE_INVALID",
+            details: {
+              uiCandidates: inspection.uiCandidates,
+              exampleCommands: inspection.exampleCommands,
+            },
+          },
+        );
+      }
+      return command.uiResourceUri;
+    }
+
+    if (inspection.uiCandidates.length === 1) {
+      return inspection.uiCandidates[0];
+    }
+    return undefined;
+  }
+
   private async executeCommand(
     room: RoomRuntime,
     command: RoomCommand,
@@ -351,8 +519,6 @@ export class RoomStore {
         return this.handleVisibility(room, command.instanceId, true, "show");
       case "unmount":
         return this.handleUnmount(room, command.instanceId);
-      case "call":
-        return this.handleCall(room, command.instanceId, command.input ?? {});
       case "select":
         return this.handleSelect(room, command.instanceId);
       case "reorder":
@@ -372,37 +538,29 @@ export class RoomStore {
       throw new HttpError(409, `Instance already mounted: ${command.instanceId}`);
     }
 
-    this.assertServerAllowed(command.server);
-    const session = await this.getSession(room.roomId, command.server);
-    const toolInfo = await session.listToolInfo(command.toolName);
+    const inspection = await this.inspectServerWithSession(
+      room.roomId,
+      command.server,
+    );
+    const selectedUiResourceUri = this.selectMountUiResourceUri(
+      command,
+      inspection,
+    );
 
     const mount: RoomMount = {
       instanceId: command.instanceId,
       server: command.server,
-      toolName: command.toolName,
-      uiResourceUri: toolInfo.uiResourceUri,
+      uiResourceUri: selectedUiResourceUri,
       visible: true,
-      container: command.container,
+      container: { ...command.container },
+      tools: inspection.tools.map((tool) => cloneMountTool(tool)),
     };
 
     room.mounts.set(mount.instanceId, mount);
     room.order.push(mount.instanceId);
     room.selectedInstanceId = mount.instanceId;
 
-    let invocationId: string | undefined;
-    if (command.initialInput) {
-      const invocation = this.createInvocation(mount, command.initialInput);
-      invocationId = invocation.invocationId;
-      this.insertInvocation(room, invocation);
-    }
-
     const state = this.commit(room, "mount");
-
-    if (invocationId) {
-      this.startInvocation(room.roomId, invocationId).catch(() => {
-        // Async failure is reflected in room state by startInvocation.
-      });
-    }
 
     return {
       statusCode: 200,
@@ -784,69 +942,6 @@ export class RoomStore {
     return container;
   }
 
-  private handleCall(
-    room: RoomRuntime,
-    instanceId: string,
-    input: Record<string, unknown>,
-  ): CommandExecutionResult {
-    const mount = this.requireMount(room, instanceId);
-    const invocation = this.createInvocation(mount, input);
-
-    this.insertInvocation(room, invocation);
-    room.selectedInstanceId = instanceId;
-    const state = this.commit(room, "call");
-
-    this.startInvocation(room.roomId, invocation.invocationId).catch(() => {
-      // Async failure is reflected in room state by startInvocation.
-    });
-
-    return {
-      statusCode: 202,
-      response: {
-        ok: true,
-        accepted: true,
-        invocationId: invocation.invocationId,
-        revision: state.revision,
-        state,
-      },
-    };
-  }
-
-  private async startInvocation(
-    roomId: string,
-    invocationId: string,
-  ): Promise<void> {
-    const room = this.requireRoom(roomId);
-    const invocation = room.invocations.get(invocationId);
-    if (!invocation) {
-      return;
-    }
-
-    const session = await this.getSession(roomId, invocation.server);
-
-    try {
-      const result = await session.callTool(invocation.toolName, invocation.input);
-      const currentRoom = this.requireRoom(roomId);
-      const current = currentRoom.invocations.get(invocationId);
-      if (!current) {
-        return;
-      }
-      current.status = "completed";
-      current.result = result;
-      current.error = undefined;
-      this.commit(currentRoom, "call-result");
-    } catch (error) {
-      const currentRoom = this.requireRoom(roomId);
-      const current = currentRoom.invocations.get(invocationId);
-      if (!current) {
-        return;
-      }
-      current.status = "failed";
-      current.error = error instanceof Error ? error.message : String(error);
-      this.commit(currentRoom, "call-failed");
-    }
-  }
-
   private insertInvocation(room: RoomRuntime, invocation: RoomInvocation): void {
     room.invocations.set(invocation.invocationId, invocation);
     room.invocationOrder.push(invocation.invocationId);
@@ -857,18 +952,6 @@ export class RoomStore {
         room.invocations.delete(oldId);
       }
     }
-  }
-
-  private createInvocation(
-    mount: RoomMount,
-    input: Record<string, unknown>,
-  ): RoomInvocation {
-    return this.createInvocationForTool(
-      mount.instanceId,
-      mount.server,
-      mount.toolName,
-      input,
-    );
   }
 
   private createInvocationForTool(
@@ -917,7 +1000,11 @@ export class RoomStore {
     const mounts = room.order
       .map((instanceId) => room.mounts.get(instanceId))
       .filter((mount): mount is RoomMount => !!mount)
-      .map((mount) => ({ ...mount, container: { ...mount.container } }));
+      .map((mount) => ({
+        ...mount,
+        container: { ...mount.container },
+        tools: mount.tools.map((tool) => cloneMountTool(tool)),
+      }));
 
     const invocations = room.invocationOrder
       .map((id) => room.invocations.get(id))
@@ -1013,4 +1100,146 @@ function snapToStepNonNegative(value: number, step: number): number {
 
 function snapToStepPositive(value: number, step: number): number {
   return Math.max(1, Math.round(value / step) * step);
+}
+
+function parseToolsPage(payload: unknown): ParsedToolsPage {
+  const body = asRecord(payload);
+  const rawTools = Array.isArray(body?.tools) ? body.tools : [];
+  const tools: RoomMountTool[] = [];
+
+  for (const rawTool of rawTools) {
+    const tool = asRecord(rawTool);
+    const name = asNonEmptyString(tool?.name);
+    if (!name) {
+      continue;
+    }
+
+    const title = asNonEmptyString(tool?.title);
+    const description = asNonEmptyString(tool?.description);
+    const inputSchema =
+      tool?.inputSchema === undefined
+        ? { type: "object", properties: {} }
+        : cloneUnknown(tool.inputSchema);
+    const uiResourceUri = extractToolUiResourceUri(tool);
+
+    tools.push({
+      name,
+      ...(title ? { title } : {}),
+      ...(description ? { description } : {}),
+      inputSchema,
+      ...(uiResourceUri ? { uiResourceUri } : {}),
+    });
+  }
+
+  return {
+    tools,
+    nextCursor: asNonEmptyString(body?.nextCursor),
+  };
+}
+
+function parseResourcesPage(payload: unknown): ParsedResourcesPage {
+  const body = asRecord(payload);
+  const rawResources = Array.isArray(body?.resources) ? body.resources : [];
+  const resources: Array<{ uri: string; mimeType?: string }> = [];
+
+  for (const rawResource of rawResources) {
+    const resource = asRecord(rawResource);
+    const uri = asNonEmptyString(resource?.uri);
+    if (!uri) {
+      continue;
+    }
+    const mimeType = asNonEmptyString(resource?.mimeType);
+    resources.push({ uri, ...(mimeType ? { mimeType } : {}) });
+  }
+
+  return {
+    resources,
+    nextCursor: asNonEmptyString(body?.nextCursor),
+  };
+}
+
+function isUiCandidateResource(resource: { uri: string; mimeType?: string }): boolean {
+  if (resource.uri.startsWith("ui://")) {
+    return true;
+  }
+  return resource.mimeType === RESOURCE_MIME_TYPE;
+}
+
+function buildExampleCommands(serverUrl: string, uiCandidates: string[]): string[] {
+  const quotedServer = shellQuote(serverUrl);
+  const baseMount = `roomctl mount --room <room-id> --instance <instance-id> --server ${quotedServer} --container 0,0,4,12`;
+  const inspect = `roomctl inspect --server ${quotedServer}`;
+
+  if (uiCandidates.length === 0) {
+    return [baseMount, inspect];
+  }
+
+  if (uiCandidates.length === 1) {
+    return [
+      baseMount,
+      `${baseMount} --ui-resource-uri ${shellQuote(uiCandidates[0])}`,
+    ];
+  }
+
+  return [
+    baseMount,
+    inspect,
+    ...uiCandidates.map((uri) => `${baseMount} --ui-resource-uri ${shellQuote(uri)}`),
+  ];
+}
+
+function shellQuote(value: string): string {
+  if (/^[A-Za-z0-9._~:/?#\[\]@!$&()*+,;=-]+$/.test(value)) {
+    return value;
+  }
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  return value as Record<string, unknown>;
+}
+
+function asNonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function extractToolUiResourceUri(tool: Record<string, unknown>): string | undefined {
+  const meta = asRecord(tool._meta);
+  const nestedUri = asNonEmptyString(asRecord(meta?.ui)?.resourceUri);
+  if (nestedUri && nestedUri.startsWith("ui://")) {
+    return nestedUri;
+  }
+
+  const flatUri = asNonEmptyString(meta?.[RESOURCE_URI_META_KEY]);
+  if (flatUri && flatUri.startsWith("ui://")) {
+    return flatUri;
+  }
+
+  if (nestedUri || flatUri) {
+    // GOTCHA: malformed UI URI metadata must not crash inspection.
+    return undefined;
+  }
+  return undefined;
+}
+
+function cloneMountTool(tool: RoomMountTool): RoomMountTool {
+  return {
+    ...tool,
+    inputSchema: cloneUnknown(tool.inputSchema),
+  };
+}
+
+function cloneUnknown<T>(value: T): T {
+  try {
+    return structuredClone(value);
+  } catch {
+    return value;
+  }
 }

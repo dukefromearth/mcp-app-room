@@ -23,20 +23,22 @@ classDiagram
   class "RoomEvent @ services/roomd/src/types.ts" as type_9c29fd8bf453
   class "RoomInvocation @ services/roomd/src/types.ts" as type_a2f5523981f7
   class "RoomMount @ services/roomd/src/types.ts" as type_33fc2f0b6643
+  class "RoomMountTool @ services/roomd/src/types.ts" as type_aca94b1b4f75
   class "RoomState @ services/roomd/src/types.ts" as type_dac5309daf71
   class "RoomStore @ services/roomd/src/store.ts" as type_3dcb73ed0bfd
   class "ServerInfo @ apps/host-web/src/implementation.ts" as type_7712d73aebf0
-  class "SessionToolInfo @ services/roomd/src/types.ts" as type_8bf60144479d
+  class "ServerInspection @ services/roomd/src/types.ts" as type_2f7a8b0c4163
   class "Theme @ apps/host-web/src/theme.ts" as type_6ebf9c692cbb
   class "ToolCallInfo @ apps/host-web/src/implementation.ts" as type_25abfee3b188
   class "ToolUiResource @ services/roomd/src/types.ts" as type_da3b9d5ebaad
   class "UiResourceCsp @ services/roomd/src/types.ts" as type_1acbce559208
   class "UiResourcePermissions @ services/roomd/src/types.ts" as type_9a7854b2cd91
   type_d68139be85df --> type_9d1293cc6f35 : has-a
-  type_a9824b6757e7 --> type_df4d4cefa8c9 : has-a
   type_a2f5523981f7 --> type_957d0ab8d95a : has-a
   type_33fc2f0b6643 --> type_e505f571db3f : has-a
+  type_33fc2f0b6643 --> type_aca94b1b4f75 : has-a
   type_dac5309daf71 --> type_a2f5523981f7 : has-a
   type_dac5309daf71 --> type_33fc2f0b6643 : has-a
+  type_2f7a8b0c4163 --> type_aca94b1b4f75 : has-a
   type_25abfee3b188 --> type_7712d73aebf0 : has-a
   type_b2571ea41e27 <|.. type_d8a5b5614ea8

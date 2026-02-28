@@ -11,9 +11,8 @@ const mountCommandSchema = z.object({
   type: z.literal("mount"),
   instanceId: z.string().min(1),
   server: z.string().url(),
-  toolName: z.string().min(1),
   container: gridContainerSchema,
-  initialInput: z.record(z.string(), z.unknown()).optional(),
+  uiResourceUri: z.string().min(1).optional(),
 });
 
 const hideCommandSchema = z.object({
@@ -29,12 +28,6 @@ const showCommandSchema = z.object({
 const unmountCommandSchema = z.object({
   type: z.literal("unmount"),
   instanceId: z.string().min(1),
-});
-
-const callCommandSchema = z.object({
-  type: z.literal("call"),
-  instanceId: z.string().min(1),
-  input: z.record(z.string(), z.unknown()).optional(),
 });
 
 const selectCommandSchema = z.object({
@@ -132,7 +125,6 @@ export const roomCommandSchema = z.discriminatedUnion("type", [
   hideCommandSchema,
   showCommandSchema,
   unmountCommandSchema,
-  callCommandSchema,
   selectCommandSchema,
   reorderCommandSchema,
   layoutCommandSchema,
@@ -145,6 +137,10 @@ export const commandEnvelopeSchema = z.object({
 
 export const createRoomSchema = z.object({
   roomId: z.string().min(1),
+});
+
+export const inspectServerSchema = z.object({
+  server: z.string().url(),
 });
 
 export const sinceRevisionSchema = z
