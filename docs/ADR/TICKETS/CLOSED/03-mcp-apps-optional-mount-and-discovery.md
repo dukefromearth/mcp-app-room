@@ -1,6 +1,9 @@
 # Title
 Make MCP Apps Optional in Mount Semantics and Discovery
 
+# Status
+Closed (merged via PR #2 on 2026-02-28)
+
 # Priority
 P0
 
