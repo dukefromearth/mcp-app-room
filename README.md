@@ -19,6 +19,13 @@ e2e/
   playwright/
 ```
 
+## Documentation
+
+- [docs/README.md](docs/README.md)
+- [docs/architecture-linting.md](docs/architecture-linting.md)
+- [docs/repository-setup.md](docs/repository-setup.md)
+- [docs/generated/README.md](docs/generated/README.md)
+
 ## Start
 
 ```bash
@@ -38,11 +45,12 @@ Open:
 
 ## CLI
 
-Quick guide: [`CLI_QUICK_START.md`](CLI_QUICK_START.md)
+Quick guide: [`docs/cli/CLI_QUICK_START.md`](docs/cli/CLI_QUICK_START.md)
 
 ```bash
 npm run roomd:cli -- create --room demo
 npm run roomd:cli -- mount --room demo --instance inst-1 --server http://localhost:3001/mcp --tool get-time --container 0,0,4,4 --input '{}'
+npm run roomd:cli -- tools-list --room demo --instance inst-1
 npm run roomd:cli -- call --room demo --instance inst-1 --input '{}'
 npm run roomd:cli -- select --room demo --instance inst-1
 npm run roomd:cli -- reorder --room demo --order inst-2,inst-1
@@ -53,6 +61,13 @@ Global flags:
 - `--base-url` (default `http://localhost:8090`, env `ROOMD_BASE_URL`)
 - `--timeout` (default `10s`)
 - `--output pretty|json`
+
+## Developer Checks
+
+```bash
+npm run check:dev
+npm run test:all
+```
 
 ## Playwright Attached Mode
 
@@ -82,3 +97,29 @@ are generated to `docs/generated/`.
 npm run arch:gen
 npm run arch:check
 ```
+
+## Repository Guardrails
+
+Local anti-pattern checks are enforced by `repo-guard`:
+
+```bash
+npm run repo:guard
+npm run repo:guard:strict
+npm run repo:guard:baseline
+npm run repo:doctor
+```
+
+Full policy is documented in
+[`docs/repository-setup.md`](docs/repository-setup.md).
+
+Install local git hooks (optional but recommended):
+
+```bash
+npm run setup:hooks
+```
+
+## npm Workspace `node_modules`
+
+This repo uses npm workspaces, so dependencies are hoisted into root
+`node_modules/` by default. Not seeing `node_modules/` inside
+`apps/host-web` or `services/roomd` is normal.

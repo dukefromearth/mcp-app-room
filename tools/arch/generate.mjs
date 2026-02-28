@@ -1,14 +1,10 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
 import { promises as fs } from "node:fs";
-import { createRequire } from "node:module";
 import path from "node:path";
 import process from "node:process";
 import fg from "fast-glob";
 import { Node, Project, SyntaxKind } from "ts-morph";
-
-const require = createRequire(import.meta.url);
 
 const DEFAULT_CONFIG = {
   project: "./tsconfig.json",
@@ -84,31 +80,6 @@ function mergeConfig(userConfig) {
 
 function regexList(patterns) {
   return patterns.map((pattern) => new RegExp(pattern));
-}
-
-function getGitValue(args, fallback) {
-  try {
-    return execFileSync("git", args, { encoding: "utf8" }).trim();
-  } catch {
-    return fallback;
-  }
-}
-
-function getPackageVersion(packageName) {
-  try {
-    return require(`${packageName}/package.json`).version;
-  } catch {
-    try {
-      const rootPackageJson = require(path.resolve(process.cwd(), "package.json"));
-      return (
-        rootPackageJson.dependencies?.[packageName] ??
-        rootPackageJson.devDependencies?.[packageName] ??
-        "not-installed"
-      );
-    } catch {
-      return "not-installed";
-    }
-  }
 }
 
 function declarationSymbolKey(declaration) {
@@ -498,8 +469,6 @@ async function main() {
 
   const callgraphNodes = new Map();
   const callgraphEdges = [];
-  let unresolvedCallsites = 0;
-  let callgraphTruncated = false;
   const unresolvedNodeByLabel = new Map();
 
   const ensureNode = (node) => {
@@ -522,7 +491,6 @@ async function main() {
 
   const addCallEdge = (fromNode, toNode) => {
     if (callgraphEdges.length >= config.callgraph.maxEdges) {
-      callgraphTruncated = true;
       return false;
     }
     callgraphEdges.push({ from: fromNode, to: toNode });
@@ -561,7 +529,6 @@ async function main() {
           }
         }
       } else if (addCallEdge(entryNode, ensureUnresolvedNode(callee.label))) {
-        unresolvedCallsites += 1;
       }
     }
 
@@ -623,7 +590,6 @@ async function main() {
         if (!addCallEdge(ensureNode(caller), ensureUnresolvedNode(callee.label))) {
           break;
         }
-        unresolvedCallsites += 1;
       }
     }
   }
@@ -646,48 +612,6 @@ async function main() {
   await fs.writeFile(path.join(outputDir, "types.mmd"), `${typeLines.join("\n")}\n`, "utf8");
   await fs.writeFile(path.join(outputDir, "callgraph-app.txt"), `${callgraphTxtLines.join("\n")}\n`, "utf8");
   await fs.writeFile(path.join(outputDir, "callgraph.mmd"), `${callgraphMermaidLines.join("\n")}\n`, "utf8");
-
-  const gitSha = getGitValue(["rev-parse", "HEAD"], "unknown");
-  const commitTimestamp = getGitValue(["show", "-s", "--format=%cI", "HEAD"], new Date().toISOString());
-
-  const summaryLines = [
-    "# Architecture Generation Summary",
-    "",
-    "## Scope",
-    `- tsconfig: \`${config.project}\``,
-    `- includeOnly: \`${config.includeOnly}\``,
-    `- exclude: \`${config.exclude.join(" | ")}\``,
-    `- entrypoints: \`${(config.callgraph.entrypoints ?? []).join(", ")}\``,
-    "",
-    "## Counts",
-    `- files scanned: ${sourceFiles.length}`,
-    `- type nodes: ${limitedTypeNodes.length}${typeNodes.length > limitedTypeNodes.length ? ` (truncated from ${typeNodes.length})` : ""}`,
-    `- type edges: ${sortedTypeEdges.length}${typeEdges.length > sortedTypeEdges.length ? ` (truncated from ${typeEdges.length})` : ""}`,
-    `- callable declarations discovered: ${dedupedCallables.length}`,
-    `- callgraph entrypoints resolved: ${entrypointFiles.length}`,
-    `- callgraph nodes: ${callgraphNodes.size}`,
-    `- callgraph edges: ${dedupedCallEdges.length}${callgraphTruncated ? " (truncated by maxEdges)" : ""}`,
-    `- unresolved callsites: ${unresolvedCallsites}`,
-    "",
-    "## Build Metadata",
-    `- commit: \`${gitSha}\``,
-    `- timestamp: \`${commitTimestamp}\``,
-    "",
-    "## Tool Versions",
-    `- node: \`${process.version}\``,
-    `- dependency-cruiser: \`${getPackageVersion("dependency-cruiser")}\``,
-    `- ts-morph: \`${getPackageVersion("ts-morph")}\``,
-    `- typescript: \`${getPackageVersion("typescript")}\``,
-    `- @mermaid-js/mermaid-cli: \`${getPackageVersion("@mermaid-js/mermaid-cli")}\``,
-    "",
-    "## Generated Artifacts",
-    "- deps.mmd",
-    "- types.mmd",
-    "- callgraph-app.txt",
-    "- callgraph.mmd",
-  ];
-
-  await fs.writeFile(path.join(outputDir, "SUMMARY.md"), `${summaryLines.join("\n")}\n`, "utf8");
 }
 
 main().catch((error) => {

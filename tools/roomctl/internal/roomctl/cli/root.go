@@ -88,6 +88,7 @@ func newRootCmdWithOptions(opts *rootOptions) *cobra.Command {
 		newCallCmd(opts),
 		newInstanceToolCallCmd(opts),
 		newInstanceCapabilitiesCmd(opts),
+		newInstanceToolsListCmd(opts),
 		newInstanceResourcesListCmd(opts),
 		newInstanceResourceReadCmd(opts),
 		newInstanceResourceTemplatesListCmd(opts),
@@ -475,6 +476,29 @@ func newInstanceCapabilitiesCmd(opts *rootOptions) *cobra.Command {
 
 	cmd.Flags().StringVar(&roomID, "room", "", "Room ID")
 	cmd.Flags().StringVar(&instanceID, "instance", "", "Mount instance ID")
+	_ = cmd.MarkFlagRequired("room")
+	_ = cmd.MarkFlagRequired("instance")
+	return cmd
+}
+
+func newInstanceToolsListCmd(opts *rootOptions) *cobra.Command {
+	var roomID string
+	var instanceID string
+	var cursor string
+
+	cmd := &cobra.Command{
+		Use:   "tools-list --room <room-id> --instance <instance-id> [--cursor <cursor>]",
+		Short: "List tools from a mounted instance",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return runWithClient(opts, func(ctx context.Context, client *roomd.Client) (roomd.Envelope, error) {
+				return client.InstanceToolsList(ctx, roomID, instanceID, cursor)
+			})
+		},
+	}
+
+	cmd.Flags().StringVar(&roomID, "room", "", "Room ID")
+	cmd.Flags().StringVar(&instanceID, "instance", "", "Mount instance ID")
+	cmd.Flags().StringVar(&cursor, "cursor", "", "Pagination cursor")
 	_ = cmd.MarkFlagRequired("room")
 	_ = cmd.MarkFlagRequired("instance")
 	return cmd

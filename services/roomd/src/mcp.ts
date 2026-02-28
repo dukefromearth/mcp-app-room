@@ -72,6 +72,10 @@ class RealMcpSession implements McpSession {
     return this.client.callTool({ name: toolName, arguments: input });
   }
 
+  async listTools(params?: { cursor?: string }): Promise<unknown> {
+    return this.client.listTools(params);
+  }
+
   async readUiResource(uri: string): Promise<ToolUiResource> {
     const resource = await this.client.readResource({ uri });
 
@@ -187,6 +191,8 @@ export class RealMcpSessionFactory implements McpSessionFactory {
       );
     }
 
+    // TODO: If first connect fails, we cache a rejected promise and future retries
+    // fail until process restart. Evict failed entries to allow recovery.
     return this.sessions.get(key)!;
   }
 }

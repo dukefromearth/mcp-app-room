@@ -1,0 +1,7 @@
+[
+  "source-line-cap:apps/host-web/serve.ts",
+  "source-line-cap:apps/host-web/src/implementation.ts",
+  "source-line-cap:apps/host-web/src/room-canvas.tsx",
+  "source-line-cap:services/roomd/src/store.ts",
+  "source-line-cap:tools/roomctl/internal/roomctl/cli/root.go"
+]

@@ -175,6 +175,7 @@ export interface SessionToolInfo {
 
 export interface McpSession {
   listToolInfo(toolName: string): Promise<SessionToolInfo>;
+  listTools(params?: { cursor?: string }): Promise<unknown>;
   callTool(toolName: string, input: Record<string, unknown>): Promise<unknown>;
   readUiResource(uri: string): Promise<ToolUiResource>;
   listResources(params?: { cursor?: string }): Promise<unknown>;

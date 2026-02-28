@@ -7,7 +7,7 @@ import { getTheme, onThemeChange } from "./theme";
 import { HOST_STYLE_VARIABLES } from "./host-styles";
 
 
-const SANDBOX_PROXY_BASE_URL = "http://localhost:8081/sandbox.html";
+const DEFAULT_SANDBOX_PROXY_BASE_URL = "http://localhost:8081/sandbox.html";
 const IMPLEMENTATION = { name: "MCP Apps Host", version: "1.0.0" };
 const HOST_UI_STYLES = HOST_STYLE_VARIABLES as unknown as McpUiStyles;
 
@@ -231,7 +231,10 @@ export function loadSandboxProxy(
   });
 
   // Build sandbox URL with CSP query param for HTTP header-based CSP
-  const sandboxUrl = new URL(SANDBOX_PROXY_BASE_URL);
+  // GOTCHA: host and sandbox are intentionally split across origins. The
+  // sandbox listener is expected on the next local port (e.g. 8080->8081,
+  // 43817->43818) unless explicitly overridden via ?sandbox=...
+  const sandboxUrl = new URL(resolveSandboxProxyBaseUrl());
   if (csp) {
     sandboxUrl.searchParams.set("csp", JSON.stringify(csp));
   }
@@ -240,6 +243,29 @@ export function loadSandboxProxy(
   iframe.src = sandboxUrl.href;
 
   return readyPromise;
+}
+
+function resolveSandboxProxyBaseUrl(): string {
+  if (typeof window === "undefined") {
+    return DEFAULT_SANDBOX_PROXY_BASE_URL;
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const explicit = params.get("sandbox");
+  if (explicit && explicit.trim().length > 0) {
+    try {
+      return new URL(explicit, window.location.origin).toString();
+    } catch (error) {
+      log.warn("Ignoring invalid sandbox URL override:", error);
+    }
+  }
+
+  const port = Number.parseInt(window.location.port, 10);
+  if (Number.isFinite(port) && port > 0) {
+    return `${window.location.protocol}//${window.location.hostname}:${port + 1}/sandbox.html`;
+  }
+
+  return DEFAULT_SANDBOX_PROXY_BASE_URL;
 }
 
 export function createHostAppBridge(

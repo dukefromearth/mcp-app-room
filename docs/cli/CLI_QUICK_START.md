@@ -84,6 +84,7 @@ Useful extras:
 
 ```bash
 npm run roomd:cli -- call --room demo --instance inst-1 --input '{}'
+npm run roomd:cli -- tools-list --room demo --instance inst-1
 npm run roomd:cli -- select --room demo --instance inst-2
 npm run roomd:cli -- reorder --room demo --order inst-2,inst-1
 npm run roomd:cli -- layout --room demo --ops '[{"op":"swap","first":"inst-1","second":"inst-2"}]'
@@ -229,12 +230,14 @@ Do not run instance commands until you have an `instanceId` from `state.mounts`:
 
 ```bash
 npm run roomd:cli -- capabilities --room <room-id> --instance <instance-id> -o json
+npm run roomd:cli -- tools-list --room <room-id> --instance <instance-id> -o json
 npm run roomd:cli -- resources-list --room <room-id> --instance <instance-id> -o json
 npm run roomd:cli -- resource-templates-list --room <room-id> --instance <instance-id> -o json
 npm run roomd:cli -- prompts-list --room <room-id> --instance <instance-id> -o json
 ```
 
 Notes:
+- `tools-list` is the canonical source of tool names and input schemas for a mounted instance.
 - `prompts-list` may return "method not found" if that server does not implement prompts.
 - `resources-list` and `resource-templates-list` tell you what can be read next.
 
@@ -269,7 +272,7 @@ app-specific tool calls.
 
 Use `tool-call` only after you know:
 - `instanceId` (from mounts)
-- tool name (from app docs/capabilities/conventions)
+- tool name (from `tools-list`)
 - required arguments (often from prior invocation outputs)
 
 ```bash
@@ -284,9 +287,10 @@ When you know nothing about what is mounted, this order avoids dead ends:
 2. `state`
 3. pick an `instanceId` from `state.mounts`
 4. `capabilities`
-5. `resources-list`
-6. `resource-templates-list`
-7. optional `prompts-list`
-8. `resources-read` for discovered URIs
-9. `call` or `tool-call` only after required identifiers are known
-10. `state-get state.invocations` to correlate outputs to invocation IDs
+5. `tools-list`
+6. `resources-list`
+7. `resource-templates-list`
+8. optional `prompts-list`
+9. `resources-read` for discovered URIs
+10. `call` or `tool-call` only after required identifiers are known
+11. `state-get state.invocations` to correlate outputs to invocation IDs

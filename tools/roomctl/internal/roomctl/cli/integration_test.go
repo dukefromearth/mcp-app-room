@@ -290,6 +290,51 @@ func TestToolCallCommandIntegration(t *testing.T) {
 	}
 }
 
+func TestToolsListCommandIntegration(t *testing.T) {
+	t.Parallel()
+
+	var gotMethod string
+	var gotPath string
+	var decodeErr error
+	var gotBody struct {
+		Cursor string `json:"cursor"`
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		decodeErr = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"tools":[{"name":"read"}]}`))
+	}))
+	defer server.Close()
+
+	env := runCommand(
+		t,
+		server.URL,
+		"tools-list",
+		"--room", "demo",
+		"--instance", "inst-1",
+		"--cursor", "next-page",
+	)
+
+	if gotMethod != http.MethodPost {
+		t.Fatalf("method=%s want=%s", gotMethod, http.MethodPost)
+	}
+	if gotPath != "/rooms/demo/instances/inst-1/tools/list" {
+		t.Fatalf("path=%s want=/rooms/demo/instances/inst-1/tools/list", gotPath)
+	}
+	if decodeErr != nil {
+		t.Fatalf("decode request body: %v", decodeErr)
+	}
+	if gotBody.Cursor != "next-page" {
+		t.Fatalf("cursor=%q want=next-page", gotBody.Cursor)
+	}
+	if env.Status != http.StatusOK {
+		t.Fatalf("status=%d want=%d", env.Status, http.StatusOK)
+	}
+}
+
 func TestStateGetCommandIntegration(t *testing.T) {
 	t.Parallel()
 

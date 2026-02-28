@@ -2,6 +2,12 @@
 
 This repository enforces architecture as code with `dependency-cruiser`.
 
+Related docs:
+
+- `docs/README.md`
+- `docs/repository-setup.md`
+- `docs/generated/README.md`
+
 Configuration files:
 
 - `.dependency-cruiser.base.cjs`: universal baseline rules for TS repos.
@@ -32,6 +38,7 @@ npm run arch:lint:strict   # strict mode (all violations)
 npm run arch:baseline      # refresh known-violations baseline
 npm run arch:deps:mermaid  # regenerate docs/generated/deps.mmd
 npm run arch:gen           # generate full architecture docs in docs/generated/
+npm run arch:check         # fail when generated architecture artifacts drift
 ```
 
 ## CI Mode and Exception Policy

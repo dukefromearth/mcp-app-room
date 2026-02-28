@@ -13,6 +13,7 @@ Auxiliary host endpoints:
 
 - `GET /rooms/:roomId/instances/:instanceId/ui`
 - `GET /rooms/:roomId/instances/:instanceId/capabilities`
+- `POST /rooms/:roomId/instances/:instanceId/tools/list`
 - `POST /rooms/:roomId/instances/:instanceId/tools/call`
 - `POST /rooms/:roomId/instances/:instanceId/resources/list`
 - `POST /rooms/:roomId/instances/:instanceId/resources/read`

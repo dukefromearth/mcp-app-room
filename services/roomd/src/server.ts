@@ -135,6 +135,25 @@ app.get(
 );
 
 app.post(
+  "/rooms/:roomId/instances/:instanceId/tools/list",
+  async (req, res, next) => {
+    try {
+      const body = z
+        .object({ cursor: z.string().optional() })
+        .parse(req.body ?? {});
+      const result = await store.listInstanceTools(
+        req.params.roomId,
+        req.params.instanceId,
+        body.cursor,
+      );
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post(
   "/rooms/:roomId/instances/:instanceId/tools/call",
   async (req, res, next) => {
     try {

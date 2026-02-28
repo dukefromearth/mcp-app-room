@@ -1,0 +1,68 @@
+{
+  "knownViolationsFile": ".repo-guard-known-violations.json",
+  "forbiddenTrackedPathGlobs": [
+    "**/.DS_Store",
+    "**/Thumbs.db",
+    "**/*.orig",
+    "**/*.rej",
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/coverage/**",
+    "**/.next/**",
+    "**/.turbo/**"
+  ],
+  "srcRoots": [
+    "apps/*/src",
+    "services/*/src"
+  ],
+  "srcReadmeIgnoreDirNames": [
+    "__tests__",
+    "tests",
+    "test",
+    "fixtures",
+    "generated",
+    "dist",
+    "coverage",
+    "node_modules"
+  ],
+  "workspaceRoots": [
+    "apps/*",
+    "services/*",
+    "tools/*"
+  ],
+  "workspaceShapeRules": [
+    {
+      "glob": "apps/*",
+      "required": [
+        "package.json",
+        "README.md",
+        "src"
+      ]
+    },
+    {
+      "glob": "services/*",
+      "required": [
+        "package.json",
+        "README.md",
+        "src"
+      ]
+    },
+    {
+      "glob": "tools/*",
+      "required": [
+        "README.md"
+      ]
+    }
+  ],
+  "sourceLineCap": {
+    "defaultMaxLines": 450,
+    "extensions": [
+      ".ts",
+      ".tsx",
+      ".go"
+    ],
+    "ignoreGlobs": [
+      "docs/generated/**"
+    ]
+  }
+}

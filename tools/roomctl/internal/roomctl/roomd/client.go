@@ -71,6 +71,20 @@ func (c *Client) InstanceCapabilities(ctx context.Context, roomID string, instan
 	return c.do(ctx, http.MethodGet, endpoint, nil)
 }
 
+func (c *Client) InstanceToolsList(
+	ctx context.Context,
+	roomID string,
+	instanceID string,
+	cursor string,
+) (Envelope, error) {
+	endpoint := "/rooms/" + url.PathEscape(roomID) + "/instances/" + url.PathEscape(instanceID) + "/tools/list"
+	payload := map[string]any{}
+	if strings.TrimSpace(cursor) != "" {
+		payload["cursor"] = cursor
+	}
+	return c.do(ctx, http.MethodPost, endpoint, payload)
+}
+
 func (c *Client) InstanceToolCall(
 	ctx context.Context,
 	roomID string,

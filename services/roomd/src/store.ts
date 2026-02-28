@@ -251,9 +251,51 @@ export class RoomStore {
     name: string,
     input: Record<string, unknown>,
   ): Promise<unknown> {
+    const room = this.requireRoom(roomId);
+    const mount = this.requireMount(room, instanceId);
+    const session = await this.getSession(roomId, mount.server);
+    const invocation = this.createInvocationForTool(
+      mount.instanceId,
+      mount.server,
+      name,
+      input,
+    );
+
+    this.insertInvocation(room, invocation);
+    room.selectedInstanceId = instanceId;
+    this.commit(room, "call");
+
+    try {
+      const result = await session.callTool(name, input);
+      const currentRoom = this.requireRoom(roomId);
+      const current = currentRoom.invocations.get(invocation.invocationId);
+      if (current) {
+        current.status = "completed";
+        current.result = result;
+        current.error = undefined;
+        this.commit(currentRoom, "call-result");
+      }
+      return result;
+    } catch (error) {
+      const currentRoom = this.requireRoom(roomId);
+      const current = currentRoom.invocations.get(invocation.invocationId);
+      if (current) {
+        current.status = "failed";
+        current.error = error instanceof Error ? error.message : String(error);
+        this.commit(currentRoom, "call-failed");
+      }
+      throw error;
+    }
+  }
+
+  async listInstanceTools(
+    roomId: string,
+    instanceId: string,
+    cursor?: string,
+  ): Promise<unknown> {
     const mount = this.getInstanceMount(roomId, instanceId);
     const session = await this.getSession(roomId, mount.server);
-    return session.callTool(name, input);
+    return session.listTools({ cursor });
   }
 
   async listInstanceResources(
@@ -821,12 +863,26 @@ export class RoomStore {
     mount: RoomMount,
     input: Record<string, unknown>,
   ): RoomInvocation {
+    return this.createInvocationForTool(
+      mount.instanceId,
+      mount.server,
+      mount.toolName,
+      input,
+    );
+  }
+
+  private createInvocationForTool(
+    instanceId: string,
+    server: string,
+    toolName: string,
+    input: Record<string, unknown>,
+  ): RoomInvocation {
     const invocationId = `inv-${Date.now()}-${this.invocationCounter++}`;
     return {
       invocationId,
-      instanceId: mount.instanceId,
-      server: mount.server,
-      toolName: mount.toolName,
+      instanceId,
+      server,
+      toolName,
       input,
       status: "running",
     };

@@ -21,6 +21,10 @@ class FakeSession implements McpSession {
     return this.onCallTool(name, input);
   }
 
+  async listTools(): Promise<unknown> {
+    return { tools: [this.toolInfo.tool] };
+  }
+
   async readUiResource(uri: string): Promise<{
     uiResourceUri: string;
     html: string;
@@ -222,6 +226,45 @@ describe("RoomStore", () => {
     expect(completedInvocation?.result).toEqual({
       content: [{ type: "text", text: "ok" }],
     });
+  });
+
+  it("tracks direct tools/call invocations and emits state updates", async () => {
+    const store = newStore(Promise.resolve({ content: [{ type: "text", text: "ok" }] }));
+    store.createRoom("demo");
+
+    await store.applyCommand(
+      "demo",
+      commandEnvelope("cmd-mount", {
+        type: "mount",
+        instanceId: "inst-1",
+        server: "http://localhost:3001/mcp",
+        toolName: "debug-tool",
+        container: { x: 0, y: 0, w: 6, h: 4 },
+      }),
+    );
+
+    const reasons: string[] = [];
+    const unsubscribe = store.subscribe("demo", (event) => {
+      if (event.type === "state-updated") {
+        reasons.push(event.reason);
+      }
+    });
+
+    const result = await store.callInstanceTool("demo", "inst-1", "replace", {
+      sessionId: "demo",
+      markdown: "# Updated",
+    });
+    unsubscribe();
+
+    expect(result).toEqual({ content: [{ type: "text", text: "ok" }] });
+    expect(reasons).toContain("call");
+    expect(reasons).toContain("call-result");
+
+    const state = store.getState("demo");
+    const invocation = state.invocations.at(-1);
+    expect(invocation?.toolName).toBe("replace");
+    expect(invocation?.status).toBe("completed");
+    expect(state.selectedInstanceId).toBe("inst-1");
   });
 
   it("returns snapshot-reset when replay window is unavailable", async () => {
