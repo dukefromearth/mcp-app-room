@@ -1,5 +1,7 @@
 import type { CommandEnvelope } from "./types";
 import { stableStringify } from "./hash";
+import { ensureServerCapability } from "./capabilities";
+import { HttpError } from "./errors";
 import type {
   CommandSuccessResponse,
   GridContainer,
@@ -8,6 +10,7 @@ import type {
   LayoutOp,
   McpSession,
   McpSessionFactory,
+  NegotiatedSession,
   RoomCommand,
   RoomEvent,
   RoomInvocation,
@@ -18,10 +21,13 @@ import type {
   ToolUiResource,
 } from "./types";
 
+export { HttpError } from "./errors";
+
 interface RoomRuntime {
   roomId: string;
   revision: number;
   mounts: Map<string, RoomMount>;
+  sessions: Map<string, NegotiatedSession>;
   order: string[];
   selectedInstanceId: string | null;
   invocations: Map<string, RoomInvocation>;
@@ -78,36 +84,6 @@ const INSPECTION_ROOM_ID = "__inspect__";
 const RESOURCE_MIME_TYPE = "text/html;profile=mcp-app";
 const RESOURCE_URI_META_KEY = "ui/resourceUri";
 
-interface HttpErrorOptions {
-  code?: string;
-  details?: Record<string, unknown>;
-}
-
-export class HttpError extends Error {
-  readonly code?: string;
-  readonly details: Record<string, unknown>;
-
-  constructor(
-    readonly statusCode: number,
-    message: string,
-    options: HttpErrorOptions = {},
-  ) {
-    super(message);
-    this.name = "HttpError";
-    this.code = options.code;
-    this.details = options.details ?? {};
-  }
-
-  toResponseBody(): Record<string, unknown> {
-    return {
-      ok: false,
-      error: this.message,
-      ...(this.code ? { code: this.code } : {}),
-      ...this.details,
-    };
-  }
-}
-
 export class RoomStore {
   private readonly rooms = new Map<string, RoomRuntime>();
   private invocationCounter = 1;
@@ -129,13 +105,14 @@ export class RoomStore {
 
   createRoom(roomId: string): RoomState {
     if (this.rooms.has(roomId)) {
-      throw new HttpError(409, `Room already exists: ${roomId}`);
+      throw new HttpError(409, "ROOM_EXISTS", `Room already exists: ${roomId}`);
     }
 
     const room: RoomRuntime = {
       roomId,
       revision: 0,
       mounts: new Map(),
+      sessions: new Map(),
       order: [],
       selectedInstanceId: null,
       invocations: new Map(),
@@ -217,7 +194,11 @@ export class RoomStore {
 
     if (existing) {
       if (existing.commandHash !== commandHash) {
-        throw new HttpError(409, "Idempotency key reused with different payload");
+        throw new HttpError(
+          409,
+          "IDEMPOTENCY_CONFLICT",
+          "Idempotency key reused with different payload",
+        );
       }
       return {
         statusCode: existing.statusCode,
@@ -250,13 +231,14 @@ export class RoomStore {
   ): Promise<ToolUiResource> {
     const room = this.requireRoom(roomId);
     const mount = this.requireMount(room, instanceId);
+    ensureServerCapability(mount.session, "resources", "resources/read");
     const session = await this.getSession(roomId, mount.server);
 
     if (!mount.uiResourceUri) {
       throw new HttpError(
         404,
+        "NO_UI_RESOURCE",
         `Mounted instance ${instanceId} has no UI resource`,
-        { code: "NO_UI_RESOURCE" },
       );
     }
 
@@ -273,8 +255,7 @@ export class RoomStore {
     instanceId: string,
   ): Promise<unknown> {
     const mount = this.getInstanceMount(roomId, instanceId);
-    const session = await this.getSession(roomId, mount.server);
-    return session.getServerCapabilities();
+    return cloneUnknown(mount.session.capabilities);
   }
 
   async callInstanceTool(
@@ -285,6 +266,7 @@ export class RoomStore {
   ): Promise<unknown> {
     const room = this.requireRoom(roomId);
     const mount = this.requireMount(room, instanceId);
+    ensureServerCapability(mount.session, "tools", "tools/call");
     const session = await this.getSession(roomId, mount.server);
     const invocation = this.createInvocationForTool(
       mount.instanceId,
@@ -326,6 +308,7 @@ export class RoomStore {
     cursor?: string,
   ): Promise<unknown> {
     const mount = this.getInstanceMount(roomId, instanceId);
+    ensureServerCapability(mount.session, "tools", "tools/list");
     const session = await this.getSession(roomId, mount.server);
     return session.listTools({ cursor });
   }
@@ -336,6 +319,7 @@ export class RoomStore {
     cursor?: string,
   ): Promise<unknown> {
     const mount = this.getInstanceMount(roomId, instanceId);
+    ensureServerCapability(mount.session, "resources", "resources/list");
     const session = await this.getSession(roomId, mount.server);
     return session.listResources({ cursor });
   }
@@ -346,6 +330,7 @@ export class RoomStore {
     uri: string,
   ): Promise<unknown> {
     const mount = this.getInstanceMount(roomId, instanceId);
+    ensureServerCapability(mount.session, "resources", "resources/read");
     const session = await this.getSession(roomId, mount.server);
     return session.readResource({ uri });
   }
@@ -356,6 +341,11 @@ export class RoomStore {
     cursor?: string,
   ): Promise<unknown> {
     const mount = this.getInstanceMount(roomId, instanceId);
+    ensureServerCapability(
+      mount.session,
+      "resources",
+      "resources/templates/list",
+    );
     const session = await this.getSession(roomId, mount.server);
     return session.listResourceTemplates({ cursor });
   }
@@ -366,6 +356,7 @@ export class RoomStore {
     cursor?: string,
   ): Promise<unknown> {
     const mount = this.getInstanceMount(roomId, instanceId);
+    ensureServerCapability(mount.session, "prompts", "prompts/list");
     const session = await this.getSession(roomId, mount.server);
     return session.listPrompts({ cursor });
   }
@@ -487,9 +478,9 @@ export class RoomStore {
       ) {
         throw new HttpError(
           422,
+          "UI_RESOURCE_INVALID",
           `UI resource URI is not available from server ${command.server}: ${command.uiResourceUri}`,
           {
-            code: "UI_RESOURCE_INVALID",
             details: {
               uiCandidates: inspection.uiCandidates,
               exampleCommands: inspection.exampleCommands,
@@ -526,7 +517,11 @@ export class RoomStore {
       case "layout":
         return this.handleLayout(room, command.adapter, command.ops);
       default:
-        throw new HttpError(400, `Unsupported command type: ${String(command)}`);
+        throw new HttpError(
+          400,
+          "INVALID_COMMAND",
+          `Unsupported command type: ${String(command)}`,
+        );
     }
   }
 
@@ -535,13 +530,20 @@ export class RoomStore {
     command: Extract<RoomCommand, { type: "mount" }>,
   ): Promise<CommandExecutionResult> {
     if (room.mounts.has(command.instanceId)) {
-      throw new HttpError(409, `Instance already mounted: ${command.instanceId}`);
+      throw new HttpError(
+        409,
+        "INSTANCE_EXISTS",
+        `Instance already mounted: ${command.instanceId}`,
+      );
     }
 
     const inspection = await this.inspectServerWithSession(
       room.roomId,
       command.server,
     );
+    const session = await this.getSession(room.roomId, command.server);
+    const negotiated = cloneNegotiatedSession(session.getNegotiatedSession());
+    room.sessions.set(command.server, cloneNegotiatedSession(negotiated));
     const selectedUiResourceUri = this.selectMountUiResourceUri(
       command,
       inspection,
@@ -551,6 +553,7 @@ export class RoomStore {
       instanceId: command.instanceId,
       server: command.server,
       uiResourceUri: selectedUiResourceUri,
+      session: negotiated,
       visible: true,
       container: { ...command.container },
       tools: inspection.tools.map((tool) => cloneMountTool(tool)),
@@ -608,10 +611,18 @@ export class RoomStore {
     room: RoomRuntime,
     instanceId: string,
   ): CommandExecutionResult {
-    this.requireMount(room, instanceId);
+    const mount = this.requireMount(room, instanceId);
+    const mountedServer = mount.server;
 
     room.mounts.delete(instanceId);
     room.order = room.order.filter((id) => id !== instanceId);
+
+    const hasRemainingForServer = [...room.mounts.values()].some(
+      (remaining) => remaining.server === mountedServer,
+    );
+    if (!hasRemainingForServer) {
+      room.sessions.delete(mountedServer);
+    }
 
     if (room.selectedInstanceId === instanceId) {
       room.selectedInstanceId = null;
@@ -646,7 +657,11 @@ export class RoomStore {
     instanceId: string | null,
   ): CommandExecutionResult {
     if (instanceId !== null && !room.mounts.has(instanceId)) {
-      throw new HttpError(404, `Unknown instance: ${instanceId}`);
+      throw new HttpError(
+        404,
+        "INSTANCE_NOT_FOUND",
+        `Unknown instance: ${instanceId}`,
+      );
     }
 
     if (room.selectedInstanceId === instanceId) {
@@ -677,17 +692,29 @@ export class RoomStore {
     order: string[],
   ): CommandExecutionResult {
     if (new Set(order).size !== order.length) {
-      throw new HttpError(400, "Reorder command contains duplicate instance ids");
+      throw new HttpError(
+        400,
+        "INVALID_COMMAND",
+        "Reorder command contains duplicate instance ids",
+      );
     }
 
     const currentIds = new Set(room.mounts.keys());
     if (order.length !== currentIds.size) {
-      throw new HttpError(400, "Reorder command must include every mounted instance");
+      throw new HttpError(
+        400,
+        "INVALID_COMMAND",
+        "Reorder command must include every mounted instance",
+      );
     }
 
     for (const instanceId of order) {
       if (!currentIds.has(instanceId)) {
-        throw new HttpError(400, `Unknown instance in reorder: ${instanceId}`);
+        throw new HttpError(
+          400,
+          "INVALID_COMMAND",
+          `Unknown instance in reorder: ${instanceId}`,
+        );
       }
     }
 
@@ -723,7 +750,11 @@ export class RoomStore {
     ops: LayoutOp[],
   ): CommandExecutionResult {
     if (ops.length === 0) {
-      throw new HttpError(400, "Layout command must include at least one operation");
+      throw new HttpError(
+        400,
+        "INVALID_COMMAND",
+        "Layout command must include at least one operation",
+      );
     }
 
     const adapter = this.resolveLayoutAdapter(adapterName);
@@ -766,7 +797,11 @@ export class RoomStore {
         }
         case "swap": {
           if (op.first === op.second) {
-            throw new HttpError(400, "Layout swap requires two distinct instance IDs");
+            throw new HttpError(
+              400,
+              "INVALID_COMMAND",
+              "Layout swap requires two distinct instance IDs",
+            );
           }
           const first = this.requireLayoutContainer(nextContainers, op.first);
           const second = this.requireLayoutContainer(nextContainers, op.second);
@@ -853,7 +888,11 @@ export class RoomStore {
           break;
         }
         default:
-          throw new HttpError(400, `Unsupported layout operation: ${String(op)}`);
+          throw new HttpError(
+            400,
+            "INVALID_COMMAND",
+            `Unsupported layout operation: ${String(op)}`,
+          );
       }
     }
 
@@ -898,7 +937,11 @@ export class RoomStore {
     if (effective === "grid12") {
       return grid12LayoutAdapter;
     }
-    throw new HttpError(400, `Unsupported layout adapter: ${effective}`);
+    throw new HttpError(
+      400,
+      "INVALID_COMMAND",
+      `Unsupported layout adapter: ${effective}`,
+    );
   }
 
   private resolveLayoutInstanceIds(
@@ -927,7 +970,11 @@ export class RoomStore {
     instanceId: string,
   ): void {
     if (!containers.has(instanceId)) {
-      throw new HttpError(404, `Instance not found: ${instanceId}`);
+      throw new HttpError(
+        404,
+        "INSTANCE_NOT_FOUND",
+        `Instance not found: ${instanceId}`,
+      );
     }
   }
 
@@ -937,7 +984,11 @@ export class RoomStore {
   ): GridContainer {
     const container = containers.get(instanceId);
     if (!container) {
-      throw new HttpError(404, `Instance not found: ${instanceId}`);
+      throw new HttpError(
+        404,
+        "INSTANCE_NOT_FOUND",
+        `Instance not found: ${instanceId}`,
+      );
     }
     return container;
   }
@@ -1002,6 +1053,7 @@ export class RoomStore {
       .filter((mount): mount is RoomMount => !!mount)
       .map((mount) => ({
         ...mount,
+        session: cloneNegotiatedSession(mount.session),
         container: { ...mount.container },
         tools: mount.tools.map((tool) => cloneMountTool(tool)),
       }));
@@ -1029,7 +1081,7 @@ export class RoomStore {
   private requireRoom(roomId: string): RoomRuntime {
     const room = this.rooms.get(roomId);
     if (!room) {
-      throw new HttpError(404, `Room not found: ${roomId}`);
+      throw new HttpError(404, "ROOM_NOT_FOUND", `Room not found: ${roomId}`);
     }
     return room;
   }
@@ -1037,7 +1089,11 @@ export class RoomStore {
   private requireMount(room: RoomRuntime, instanceId: string): RoomMount {
     const mount = room.mounts.get(instanceId);
     if (!mount) {
-      throw new HttpError(404, `Instance not found: ${instanceId}`);
+      throw new HttpError(
+        404,
+        "INSTANCE_NOT_FOUND",
+        `Instance not found: ${instanceId}`,
+      );
     }
     return mount;
   }
@@ -1056,7 +1112,11 @@ export class RoomStore {
     );
 
     if (!allowed) {
-      throw new HttpError(403, `Server URL is not allowlisted: ${serverUrl}`);
+      throw new HttpError(
+        403,
+        "SERVER_NOT_ALLOWLISTED",
+        `Server URL is not allowlisted: ${serverUrl}`,
+      );
     }
   }
 }
@@ -1109,6 +1169,9 @@ function parseToolsPage(payload: unknown): ParsedToolsPage {
 
   for (const rawTool of rawTools) {
     const tool = asRecord(rawTool);
+    if (!tool) {
+      continue;
+    }
     const name = asNonEmptyString(tool?.name);
     if (!name) {
       continue;
@@ -1233,6 +1296,14 @@ function cloneMountTool(tool: RoomMountTool): RoomMountTool {
   return {
     ...tool,
     inputSchema: cloneUnknown(tool.inputSchema),
+  };
+}
+
+function cloneNegotiatedSession(session: NegotiatedSession): NegotiatedSession {
+  return {
+    ...session,
+    capabilities: cloneUnknown(session.capabilities),
+    extensions: cloneUnknown(session.extensions),
   };
 }
 

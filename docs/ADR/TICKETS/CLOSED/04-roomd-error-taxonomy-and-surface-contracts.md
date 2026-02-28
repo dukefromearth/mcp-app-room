@@ -1,6 +1,9 @@
 # Title
 Standardize roomd Error Taxonomy Across HTTP and CLI Surfaces
 
+# Status
+Closed (implemented in combined delivery with Ticket 01 on 2026-02-28)
+
 # Priority
 P1
 

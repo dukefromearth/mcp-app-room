@@ -1,120 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { HttpError, RoomStore } from "../src/store";
-import type { CommandEnvelope, McpSession, McpSessionFactory } from "../src/types";
-
-class FakeSession implements McpSession {
-  constructor(
-    private readonly tools: Array<Record<string, unknown>>,
-    private readonly resources: Array<Record<string, unknown>>,
-    private readonly failListResources: boolean,
-    private readonly onCallTool: (name: string, input: Record<string, unknown>) => Promise<unknown>,
-  ) {}
-
-  async listTools(): Promise<unknown> {
-    return { tools: this.tools };
-  }
-
-  async callTool(name: string, input: Record<string, unknown>): Promise<unknown> {
-    return this.onCallTool(name, input);
-  }
-
-  async readUiResource(uri: string): Promise<{
-    uiResourceUri: string;
-    html: string;
-  }> {
-    return { uiResourceUri: uri, html: `<html>${uri}</html>` };
-  }
-
-  async listResources(): Promise<unknown> {
-    if (this.failListResources) {
-      throw new Error("resources/list unavailable");
-    }
-    return { resources: this.resources };
-  }
-
-  async readResource(): Promise<unknown> {
-    return { contents: [] };
-  }
-
-  async listResourceTemplates(): Promise<unknown> {
-    return { resourceTemplates: [] };
-  }
-
-  async listPrompts(): Promise<unknown> {
-    return { prompts: [] };
-  }
-
-  getServerCapabilities(): unknown {
-    return { tools: {}, resources: {} };
-  }
-}
-
-class FakeFactory implements McpSessionFactory {
-  constructor(private readonly session: McpSession) {}
-
-  async getSession(): Promise<McpSession> {
-    return this.session;
-  }
-}
-
-interface NewStoreOptions {
-  resources?: Array<Record<string, unknown>>;
-  failListResources?: boolean;
-  includeToolUiMetadata?: boolean;
-  invalidToolUiMetadata?: boolean;
-  callResult?: Promise<unknown>;
-}
-
-function newStore(options: NewStoreOptions = {}): RoomStore {
-  const debugTool: Record<string, unknown> = {
-    name: "debug-tool",
-    title: "Debug",
-    description: "Debug helper",
-    inputSchema: {
-      type: "object",
-      properties: { q: { type: "string" } },
-    },
-  };
-  if (options.includeToolUiMetadata) {
-    debugTool._meta = { ui: { resourceUri: "ui://debug-tool/mcp-app.html" } };
-  } else if (options.invalidToolUiMetadata) {
-    debugTool._meta = { ui: { resourceUri: "https://invalid.example/app.html" } };
-  }
-
-  const session = new FakeSession(
-    [
-      debugTool,
-      {
-        name: "replace",
-        title: "Replace",
-        description: "Replace markdown",
-        inputSchema: {
-          type: "object",
-          properties: {
-            sessionId: { type: "string" },
-            markdown: { type: "string" },
-          },
-        },
-      },
-    ],
-    options.resources ?? [{ uri: "ui://debug-tool/mcp-app.html" }],
-    options.failListResources ?? false,
-    async () => options.callResult ?? Promise.resolve({ content: [] }),
-  );
-
-  return new RoomStore(new FakeFactory(session), {
-    eventWindowSize: 2,
-    invocationHistoryLimit: 50,
-    idempotencyKeyLimit: 50,
-  });
-}
-
-function commandEnvelope(
-  idempotencyKey: string,
-  command: CommandEnvelope["command"],
-): CommandEnvelope {
-  return { idempotencyKey, command };
-}
+import { HttpError } from "../src/store";
+import { commandEnvelope, newStore } from "./store.fixtures";
 
 describe("RoomStore", () => {
   it("requires explicit room creation", () => {
@@ -193,6 +79,89 @@ describe("RoomStore", () => {
     expect(mount.tools).toHaveLength(2);
     expect(mount.tools[0]).toMatchObject({ name: "debug-tool", title: "Debug" });
     expect(mount.tools[1]).toMatchObject({ name: "replace", title: "Replace" });
+    expect(mount.session).toMatchObject({
+      protocolVersion: "2025-11-25",
+      transport: "streamable-http",
+      capabilities: {
+        tools: {},
+        resources: {},
+      },
+    });
+  });
+
+  it("returns mounted negotiated capabilities snapshot", async () => {
+    const store = newStore({
+      negotiatedSession: {
+        capabilities: {
+          tools: {},
+        },
+      },
+    });
+    store.createRoom("demo");
+
+    await store.applyCommand(
+      "demo",
+      commandEnvelope("cmd-mount", {
+        type: "mount",
+        instanceId: "inst-1",
+        server: "http://localhost:3001/mcp",
+        container: { x: 0, y: 0, w: 6, h: 4 },
+      }),
+    );
+
+    const capabilities = await store.getInstanceCapabilities("demo", "inst-1");
+    expect(capabilities).toEqual({
+      tools: {},
+    });
+  });
+
+  it("returns UNSUPPORTED_CAPABILITY when route capability is missing", async () => {
+    const store = newStore({
+      negotiatedSession: {
+        capabilities: {
+          tools: {},
+        },
+      },
+    });
+    store.createRoom("demo");
+
+    await store.applyCommand(
+      "demo",
+      commandEnvelope("cmd-mount", {
+        type: "mount",
+        instanceId: "inst-1",
+        server: "http://localhost:3001/mcp",
+        container: { x: 0, y: 0, w: 6, h: 4 },
+      }),
+    );
+
+    await expect(
+      store.listInstanceResources("demo", "inst-1"),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      code: "UNSUPPORTED_CAPABILITY",
+    });
+  });
+
+  it("allows capability-gated route when capability is present", async () => {
+    const store = newStore();
+    store.createRoom("demo");
+
+    await store.applyCommand(
+      "demo",
+      commandEnvelope("cmd-mount", {
+        type: "mount",
+        instanceId: "inst-1",
+        server: "http://localhost:3001/mcp",
+        container: { x: 0, y: 0, w: 6, h: 4 },
+      }),
+    );
+
+    await expect(
+      store.listInstanceResources("demo", "inst-1"),
+    ).resolves.toEqual({
+      resources: [{ uri: "ui://debug-tool/mcp-app.html" }],
+    });
   });
 
   it("allows non-UI mount when no UI candidates exist", async () => {

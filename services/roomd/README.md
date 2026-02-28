@@ -26,6 +26,41 @@ server, records tool catalog metadata, and selects a UI resource URI when one
 is available. Non-UI mounts are valid and return `NO_UI_RESOURCE` on the `/ui`
 endpoint.
 
+Mounted state persists negotiated session metadata:
+- `protocolVersion`
+- `capabilities`
+- `extensions`
+- `transport`
+
+## Error Contract
+
+All error responses use a stable shape:
+
+```json
+{
+  "ok": false,
+  "error": "message",
+  "code": "ERROR_CODE",
+  "details": {},
+  "hint": "optional remediation"
+}
+```
+
+Current canonical codes:
+- `INVALID_PAYLOAD`
+- `IDEMPOTENCY_CONFLICT`
+- `ROOM_EXISTS`
+- `ROOM_NOT_FOUND`
+- `INSTANCE_EXISTS`
+- `INSTANCE_NOT_FOUND`
+- `SERVER_NOT_ALLOWLISTED`
+- `UNSUPPORTED_CAPABILITY`
+- `NO_UI_RESOURCE`
+- `UI_RESOURCE_INVALID`
+- `INVALID_COMMAND`
+- `UPSTREAM_TRANSPORT_ERROR`
+- `INTERNAL_ERROR`
+
 ## Run
 
 ```bash

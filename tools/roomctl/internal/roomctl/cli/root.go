@@ -664,6 +664,14 @@ func runWithClient(opts *rootOptions, run func(ctx context.Context, client *room
 }
 
 func printEnvelope(out io.Writer, format string, envelope roomd.Envelope) error {
+	if format == "pretty" && envelope.Status >= 400 {
+		if body, ok := envelope.Body.(map[string]any); ok {
+			if printPrettyError(out, envelope.Status, body) {
+				return nil
+			}
+		}
+	}
+
 	var (
 		data []byte
 		err  error
@@ -683,6 +691,32 @@ func printEnvelope(out io.Writer, format string, envelope roomd.Envelope) error 
 
 	_, err = fmt.Fprintln(out, string(data))
 	return err
+}
+
+func printPrettyError(out io.Writer, status int, body map[string]any) bool {
+	message, _ := body["error"].(string)
+	if strings.TrimSpace(message) == "" {
+		return false
+	}
+
+	code, _ := body["code"].(string)
+	if strings.TrimSpace(code) == "" {
+		code = "UNKNOWN_ERROR"
+	}
+
+	_, _ = fmt.Fprintf(out, "error [%s] (%d): %s\n", code, status, message)
+
+	if hint, _ := body["hint"].(string); strings.TrimSpace(hint) != "" {
+		_, _ = fmt.Fprintf(out, "hint: %s\n", hint)
+	}
+
+	if details, ok := body["details"]; ok && details != nil {
+		if encoded, err := json.Marshal(details); err == nil {
+			_, _ = fmt.Fprintf(out, "details: %s\n", string(encoded))
+		}
+	}
+
+	return true
 }
 
 func resolveIdempotencyKey(value string) string {

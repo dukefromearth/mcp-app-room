@@ -1,6 +1,9 @@
 # Title
 Capability Matrix and Session Metadata Contract
 
+# Status
+Closed (implemented in combined delivery with Ticket 04 on 2026-02-28)
+
 # Priority
 P0
 
