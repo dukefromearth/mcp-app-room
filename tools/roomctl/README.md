@@ -20,3 +20,7 @@ npm run roomd:cli -- --help
 npm run roomd:cli -- inspect --server http://localhost:3114/mcp
 npm run roomd:cli -- mount --room demo --instance inst-1 --server http://localhost:3114/mcp --container 0,0,4,12
 ```
+
+When `--output pretty` is used and a request fails, `roomctl` prints
+`error [CODE]`, plus optional `hint` and `details` from roomd's typed error
+contract.
