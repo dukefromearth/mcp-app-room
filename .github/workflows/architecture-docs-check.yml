@@ -21,3 +21,6 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Validate governance docs
+        run: npm run docs:check

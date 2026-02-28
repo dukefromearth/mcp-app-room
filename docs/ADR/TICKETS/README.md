@@ -6,7 +6,7 @@ This folder contains implementation tickets derived from:
 
 Execution order (recommended):
 
-1. `10-tier1-conformance-support-matrices-and-deprecation.md`
+1. Roadmap tickets complete.
 
 Milestone targets:
 
@@ -42,7 +42,10 @@ Milestone targets:
 - `09-http-auth-strategy-and-security-hardening.md`
   - moved to `CLOSED/`
   - completed on 2026-02-28 (combined with ticket 08)
+- `10-tier1-conformance-support-matrices-and-deprecation.md`
+  - moved to `CLOSED/`
+  - completed on 2026-02-28
 
 ## Next Up
 
-1. `10-tier1-conformance-support-matrices-and-deprecation.md`
+1. No open ADR tickets in this roadmap slice.

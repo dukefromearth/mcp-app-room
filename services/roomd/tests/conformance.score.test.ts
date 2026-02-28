@@ -24,7 +24,7 @@ describe("conformance threshold parser", () => {
     expect(() => assertTierThreshold(summary)).not.toThrow();
   });
 
-  it("fails when fixture output drops below Tier 2 threshold", async () => {
+  it("fails when fixture output drops below threshold", async () => {
     const outputDir = path.join(FIXTURES_DIR, "tier2-fail");
 
     const summary = await summarizeConformanceOutput({
@@ -36,7 +36,7 @@ describe("conformance threshold parser", () => {
     expect(summary.passRate).toBe(0.5);
     expect(summary.metThreshold).toBe(false);
     expect(() => assertTierThreshold(summary)).toThrow(
-      /Tier 2 conformance threshold not met/,
+      /Conformance threshold not met/,
     );
   });
 

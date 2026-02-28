@@ -2,7 +2,7 @@ import path from "node:path";
 import { promises as fs } from "node:fs";
 import {
   APPLICABLE_CLIENT_SCENARIOS,
-  TIER2_THRESHOLD,
+  TIER1_THRESHOLD,
   type ApplicableClientScenario,
 } from "./config";
 
@@ -41,7 +41,7 @@ export async function summarizeConformanceOutput(
 ): Promise<ConformanceSummary> {
   const expectedScenarios =
     options.expectedScenarios ?? APPLICABLE_CLIENT_SCENARIOS;
-  const threshold = options.threshold ?? TIER2_THRESHOLD;
+  const threshold = options.threshold ?? TIER1_THRESHOLD;
 
   const checksByScenario = await loadScenarioChecks(options.outputDir);
   const scenarios: ScenarioScore[] = [];
@@ -108,14 +108,14 @@ export function assertTierThreshold(summary: ConformanceSummary): void {
       : "no failed scenarios (threshold exceeds maximum attainable score)";
 
   throw new Error(
-    `Tier 2 conformance threshold not met: ${(summary.passRate * 100).toFixed(2)}% < ${(summary.threshold * 100).toFixed(2)}% :: ${failureDetails}`,
+    `Conformance threshold not met: ${(summary.passRate * 100).toFixed(2)}% < ${(summary.threshold * 100).toFixed(2)}% :: ${failureDetails}`,
   );
 }
 
 export function formatConformanceSummary(summary: ConformanceSummary): string {
   const lines = [
     `Conformance pass rate: ${(summary.passRate * 100).toFixed(2)}% (${summary.passedCount}/${summary.totalScenarios})`,
-    `Tier 2 threshold: ${(summary.threshold * 100).toFixed(2)}%`,
+    `Conformance threshold: ${(summary.threshold * 100).toFixed(2)}%`,
   ];
 
   for (const scenario of summary.scenarios) {

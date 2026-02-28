@@ -24,6 +24,9 @@ e2e/
 - [docs/README.md](docs/README.md)
 - [docs/architecture-linting.md](docs/architecture-linting.md)
 - [docs/repository-setup.md](docs/repository-setup.md)
+- [docs/roomd-support-matrix.md](docs/roomd-support-matrix.md)
+- [docs/roomd-deprecation-policy.md](docs/roomd-deprecation-policy.md)
+- [docs/roomd-release-readiness-checklist.md](docs/roomd-release-readiness-checklist.md)
 
 ## Start
 
@@ -67,17 +70,18 @@ Global flags:
 ```bash
 npm run check:dev
 npm run test:all
-npm run conformance:tier2
+npm run conformance:tier1
 ```
 
-## MCP Conformance (Tier 2 Gate)
+## MCP Conformance (Tier 1 Gate)
 
-Run deterministic MCP conformance checks and enforce the Tier 2 threshold:
+Run deterministic MCP conformance checks and enforce the Tier 1 threshold:
 
 ```bash
 npm run conformance:run
 npm run conformance:check
-npm run conformance:tier2
+npm run conformance:tier1
+npm run conformance:tier2   # optional fallback gate
 ```
 
 Current applicable required scenarios for `roomd`'s client boundary:
@@ -89,10 +93,8 @@ Why only these two right now:
 
 - `roomd` is a room control plane that consumes MCP servers; it is not a direct
   public MCP endpoint.
-- Auth, elicitation-defaults, and SSE-retry client scenarios are intentionally
-  excluded until the corresponding capability and auth tickets are completed.
-- Tier 2 scoring is therefore computed against the currently applicable
-  non-experimental required scenarios only.
+- Tier 1 scoring is computed against the currently applicable non-experimental
+  required scenarios for this boundary.
 
 Troubleshooting:
 

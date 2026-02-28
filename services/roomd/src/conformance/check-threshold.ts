@@ -1,7 +1,7 @@
 import path from "node:path";
 import {
   APPLICABLE_CLIENT_SCENARIOS,
-  TIER2_THRESHOLD,
+  TIER1_THRESHOLD,
 } from "./config";
 import {
   assertTierThreshold,
@@ -34,7 +34,7 @@ function readCliOptions(argv: string[]): CliOptions {
   const scenarioArgs: string[] = [];
   const projectRoot = path.resolve(process.env.INIT_CWD ?? process.cwd());
   let outputDir = path.join(projectRoot, "artifacts/conformance");
-  let threshold = TIER2_THRESHOLD;
+  let threshold = TIER1_THRESHOLD;
 
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
