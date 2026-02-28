@@ -26,10 +26,11 @@
     "arch:lint": "depcruise --config .dependency-cruiser.cjs --ignore-known .dependency-cruiser-known-violations.json apps services",
     "arch:lint:strict": "depcruise --config .dependency-cruiser.cjs apps services",
     "arch:baseline": "depcruise-baseline --config .dependency-cruiser.cjs apps services",
+    "arch": "node tools/arch/arch.mjs",
     "arch:gen": "bash scripts/generate-arch.sh docs/generated",
     "arch:check": "bash scripts/check-arch.sh",
     "arch:render": "ARCH_RENDER=1 bash scripts/generate-arch.sh docs/generated",
-    "arch:deps:mermaid": "bash scripts/generate-arch.sh docs/generated --deps-only",
+    "arch:deps:mermaid": "npm run arch -- --deps",
     "test:e2e": "playwright test",
     "playwright": "node scripts/playwright-cdp-shell.mjs",
     "playwright:test": "playwright test"
