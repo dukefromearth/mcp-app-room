@@ -11,6 +11,8 @@ import type { Resource } from "@modelcontextprotocol/sdk/types.js";
 import type {
   McpSession,
   McpSessionFactory,
+  NegotiatedSession,
+  SessionTransportKind,
   ToolUiResource,
 } from "./types";
 
@@ -26,24 +28,51 @@ type UiResourceMeta = {
   permissions?: McpUiResourcePermissions;
 };
 
-async function connectWithFallback(serverUrl: string): Promise<Client> {
+interface ConnectedClient {
+  client: Client;
+  transport: SessionTransportKind;
+  protocolVersion?: string;
+}
+
+async function connectWithFallback(serverUrl: string): Promise<ConnectedClient> {
   const url = new URL(serverUrl);
 
   try {
+    const transport = new StreamableHTTPClientTransport(url);
     const client = new Client(IMPLEMENTATION);
-    await client.connect(new StreamableHTTPClientTransport(url));
-    return client;
+    await client.connect(transport);
+    return {
+      client,
+      transport: "streamable-http",
+      protocolVersion: readProtocolVersion(transport),
+    };
   } catch {
+    const transport = new SSEClientTransport(url);
     const client = new Client(IMPLEMENTATION);
-    await client.connect(new SSEClientTransport(url));
-    return client;
+    await client.connect(transport);
+    return {
+      client,
+      transport: "legacy-sse",
+      protocolVersion: readProtocolVersion(transport),
+    };
   }
 }
 
 class RealMcpSession implements McpSession {
   private resourceCache: Map<string, Resource> = new Map();
 
-  constructor(private readonly client: Client) {}
+  constructor(
+    private readonly client: Client,
+    private readonly negotiatedSession: NegotiatedSession,
+  ) {}
+
+  getNegotiatedSession(): NegotiatedSession {
+    return {
+      ...this.negotiatedSession,
+      capabilities: { ...this.negotiatedSession.capabilities },
+      extensions: { ...this.negotiatedSession.extensions },
+    };
+  }
 
   async callTool(toolName: string, input: Record<string, unknown>): Promise<unknown> {
     return this.client.callTool({ name: toolName, arguments: input });
@@ -162,8 +191,15 @@ export class RealMcpSessionFactory implements McpSessionFactory {
       this.sessions.set(
         key,
         (async () => {
-          const client = await connectWithFallback(serverUrl);
-          return new RealMcpSession(client);
+          const connected = await connectWithFallback(serverUrl);
+          return new RealMcpSession(
+            connected.client,
+            buildNegotiatedSession(
+              connected.client,
+              connected.transport,
+              connected.protocolVersion,
+            ),
+          );
         })(),
       );
     }
@@ -172,4 +208,37 @@ export class RealMcpSessionFactory implements McpSessionFactory {
     // fail until process restart. Evict failed entries to allow recovery.
     return this.sessions.get(key)!;
   }
+}
+
+function buildNegotiatedSession(
+  client: Client,
+  transport: SessionTransportKind,
+  protocolVersion: string | undefined,
+): NegotiatedSession {
+  const capabilities = asRecord(client.getServerCapabilities()) ?? {};
+  const extensions = asRecord(capabilities.experimental) ?? {};
+  return {
+    protocolVersion,
+    capabilities,
+    extensions,
+    transport,
+  };
+}
+
+function readProtocolVersion(transport: object): string | undefined {
+  const protocolVersion =
+    asString((transport as { protocolVersion?: unknown }).protocolVersion) ??
+    asString((transport as { _protocolVersion?: unknown })._protocolVersion);
+  return protocolVersion;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  return value as Record<string, unknown>;
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
 }

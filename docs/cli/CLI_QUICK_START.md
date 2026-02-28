@@ -77,6 +77,13 @@ npm run roomd:cli -- mount --room demo --instance inst-1 --server http://localho
 If no UI metadata is available, mount still succeeds as a non-UI instance.
 `GET /rooms/:roomId/instances/:instanceId/ui` then returns `NO_UI_RESOURCE`.
 
+Capability-gated endpoints return `UNSUPPORTED_CAPABILITY` when the mounted
+server did not negotiate the required primitive. Check first with:
+
+```bash
+npm run roomd:cli -- capabilities --room demo --instance inst-1
+```
+
 Hide/show:
 
 ```bash

@@ -1,5 +1,13 @@
 export type UiResourceCsp = unknown;
 export type UiResourcePermissions = unknown;
+export type SessionTransportKind = "streamable-http" | "legacy-sse" | "unknown";
+
+export interface NegotiatedSession {
+  protocolVersion?: string;
+  capabilities: Record<string, unknown>;
+  extensions: Record<string, unknown>;
+  transport: SessionTransportKind;
+}
 
 export interface GridContainer {
   x: number;
@@ -20,6 +28,7 @@ export interface RoomMount {
   instanceId: string;
   server: string;
   uiResourceUri?: string;
+  session: NegotiatedSession;
   visible: boolean;
   container: GridContainer;
   tools: RoomMountTool[];
@@ -179,6 +188,7 @@ export interface ServerInspection {
 }
 
 export interface McpSession {
+  getNegotiatedSession(): NegotiatedSession;
   listTools(params?: { cursor?: string }): Promise<unknown>;
   callTool(toolName: string, input: Record<string, unknown>): Promise<unknown>;
   readUiResource(uri: string): Promise<ToolUiResource>;

@@ -9,7 +9,8 @@ import {
   inspectServerSchema,
   sinceRevisionSchema,
 } from "./schema";
-import { HttpError, RoomStore } from "./store";
+import { invalidPayloadError, mapUnknownError } from "./errors";
+import { RoomStore } from "./store";
 
 const port = Number.parseInt(process.env.ROOMD_PORT ?? "8090", 10);
 const eventWindowSize = Number.parseInt(
@@ -261,18 +262,10 @@ app.post(
 );
 
 app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  if (error instanceof HttpError) {
-    res.status(error.statusCode).json(error.toResponseBody());
-    return;
-  }
-
-  if (error instanceof z.ZodError) {
-    res.status(400).json({ ok: false, error: "Invalid payload", details: error.issues });
-    return;
-  }
-
-  const message = error instanceof Error ? error.message : String(error);
-  res.status(500).json({ ok: false, error: message });
+  const mapped = error instanceof z.ZodError
+    ? invalidPayloadError({ issues: error.issues })
+    : mapUnknownError(error);
+  res.status(mapped.statusCode).json(mapped.toResponseBody());
 });
 
 app.listen(port, () => {

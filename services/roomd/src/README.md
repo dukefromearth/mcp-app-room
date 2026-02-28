@@ -7,6 +7,8 @@ Runtime and domain modules for the room control plane.
 - Foundation files (`types.ts`, `schema.ts`, `hash.ts`) must stay runtime-agnostic.
 - `store.ts` owns room state transitions and command semantics.
 - `mcp.ts` and `server.ts` are integration/adapters and may import external SDKs.
+- `capabilities.ts` is the shared capability guard for all mounted-instance routes.
+- `errors.ts` is the canonical roomd error taxonomy and response mapper.
 
 ## Main files
 
@@ -24,3 +26,4 @@ plus server inspection (`POST /inspect/server`) for pre-mount discovery.
 Mount commands are app/server-level and persist:
 - optional `uiResourceUri` at the mount level.
 - full discovered `tools[]` catalog (name, schema, metadata) at the mount level.
+- negotiated session metadata (`protocolVersion`, `capabilities`, `extensions`, `transport`).
