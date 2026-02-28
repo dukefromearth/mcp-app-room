@@ -160,6 +160,53 @@ func (c *Client) InstancePromptsList(
 	return c.do(ctx, http.MethodPost, endpoint, payload)
 }
 
+func (c *Client) InstancePromptGet(
+	ctx context.Context,
+	roomID string,
+	instanceID string,
+	name string,
+	arguments map[string]string,
+) (Envelope, error) {
+	endpoint := "/rooms/" + url.PathEscape(roomID) + "/instances/" + url.PathEscape(instanceID) + "/prompts/get"
+	payload := map[string]any{"name": name}
+	if len(arguments) > 0 {
+		payload["arguments"] = arguments
+	}
+	return c.do(ctx, http.MethodPost, endpoint, payload)
+}
+
+func (c *Client) InstanceComplete(
+	ctx context.Context,
+	roomID string,
+	instanceID string,
+	params map[string]any,
+) (Envelope, error) {
+	endpoint := "/rooms/" + url.PathEscape(roomID) + "/instances/" + url.PathEscape(instanceID) + "/completion/complete"
+	return c.do(ctx, http.MethodPost, endpoint, params)
+}
+
+func (c *Client) InstanceResourceSubscribe(
+	ctx context.Context,
+	roomID string,
+	instanceID string,
+	uri string,
+) (Envelope, error) {
+	endpoint := "/rooms/" + url.PathEscape(roomID) + "/instances/" + url.PathEscape(instanceID) + "/resources/subscribe"
+	payload := map[string]any{"uri": uri}
+	return c.do(ctx, http.MethodPost, endpoint, payload)
+}
+
+func (c *Client) InstanceResourceUnsubscribe(
+	ctx context.Context,
+	roomID string,
+	instanceID string,
+	uri string,
+) (Envelope, error) {
+	endpoint := "/rooms/" + url.PathEscape(roomID) + "/instances/" + url.PathEscape(instanceID) + "/resources/unsubscribe"
+	payload := map[string]any{"uri": uri}
+	return c.do(ctx, http.MethodPost, endpoint, payload)
+}
+
 func (c *Client) do(ctx context.Context, method string, endpoint string, payload any) (Envelope, error) {
 	requestURL, err := c.joinPath(endpoint)
 	if err != nil {

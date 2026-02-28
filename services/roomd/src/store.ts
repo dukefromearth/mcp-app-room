@@ -3,6 +3,7 @@ import { stableStringify } from "./hash";
 import { ensureServerCapability } from "./capabilities";
 import { HttpError } from "./errors";
 import type {
+  CompletionCompleteParams,
   CommandSuccessResponse,
   GridContainer,
   IdempotencyRecord,
@@ -11,6 +12,8 @@ import type {
   McpSession,
   McpSessionFactory,
   NegotiatedSession,
+  PromptGetParams,
+  ResourceSubscriptionParams,
   RoomCommand,
   RoomEvent,
   RoomInvocation,
@@ -359,6 +362,50 @@ export class RoomStore {
     ensureServerCapability(mount.session, "prompts", "prompts/list");
     const session = await this.getSession(roomId, mount.server);
     return session.listPrompts({ cursor });
+  }
+
+  async getInstancePrompt(
+    roomId: string,
+    instanceId: string,
+    params: PromptGetParams,
+  ): Promise<unknown> {
+    const mount = this.getInstanceMount(roomId, instanceId);
+    ensureServerCapability(mount.session, "prompts", "prompts/get");
+    const session = await this.getSession(roomId, mount.server);
+    return session.getPrompt(params);
+  }
+
+  async completeInstance(
+    roomId: string,
+    instanceId: string,
+    params: CompletionCompleteParams,
+  ): Promise<unknown> {
+    const mount = this.getInstanceMount(roomId, instanceId);
+    ensureServerCapability(mount.session, "completions", "completion/complete");
+    const session = await this.getSession(roomId, mount.server);
+    return session.complete(params);
+  }
+
+  async subscribeInstanceResource(
+    roomId: string,
+    instanceId: string,
+    params: ResourceSubscriptionParams,
+  ): Promise<unknown> {
+    const mount = this.getInstanceMount(roomId, instanceId);
+    ensureServerCapability(mount.session, "resources", "resources/subscribe");
+    const session = await this.getSession(roomId, mount.server);
+    return session.subscribeResource(params);
+  }
+
+  async unsubscribeInstanceResource(
+    roomId: string,
+    instanceId: string,
+    params: ResourceSubscriptionParams,
+  ): Promise<unknown> {
+    const mount = this.getInstanceMount(roomId, instanceId);
+    ensureServerCapability(mount.session, "resources", "resources/unsubscribe");
+    const session = await this.getSession(roomId, mount.server);
+    return session.unsubscribeResource(params);
   }
 
   private async inspectServerWithSession(

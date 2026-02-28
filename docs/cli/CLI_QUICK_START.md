@@ -102,6 +102,10 @@ Useful extras:
 ```bash
 npm run roomd:cli -- tools-list --room demo --instance inst-1
 npm run roomd:cli -- tool-call --room demo --instance inst-1 --name get-time --arguments '{}'
+npm run roomd:cli -- prompts-get --room demo --instance inst-1 --name summarize --arguments '{"topic":"mcp"}'
+npm run roomd:cli -- complete --room demo --instance inst-1 --params '{"ref":{"type":"ref/prompt","name":"summarize"},"argument":{"name":"topic","value":"mc"}}'
+npm run roomd:cli -- resources-subscribe --room demo --instance inst-1 --uri file://notes.md
+npm run roomd:cli -- resources-unsubscribe --room demo --instance inst-1 --uri file://notes.md
 npm run roomd:cli -- select --room demo --instance inst-2
 npm run roomd:cli -- reorder --room demo --order inst-2,inst-1
 npm run roomd:cli -- layout --room demo --ops '[{"op":"swap","first":"inst-1","second":"inst-2"}]'
@@ -251,6 +255,10 @@ npm run roomd:cli -- tools-list --room <room-id> --instance <instance-id> -o jso
 npm run roomd:cli -- resources-list --room <room-id> --instance <instance-id> -o json
 npm run roomd:cli -- resource-templates-list --room <room-id> --instance <instance-id> -o json
 npm run roomd:cli -- prompts-list --room <room-id> --instance <instance-id> -o json
+npm run roomd:cli -- prompts-get --room <room-id> --instance <instance-id> --name <prompt-name> --arguments '{"k":"v"}' -o json
+npm run roomd:cli -- complete --room <room-id> --instance <instance-id> --params '{"ref":{"type":"ref/prompt","name":"<prompt-name>"},"argument":{"name":"k","value":"v"}}' -o json
+npm run roomd:cli -- resources-subscribe --room <room-id> --instance <instance-id> --uri <resource-uri> -o json
+npm run roomd:cli -- resources-unsubscribe --room <room-id> --instance <instance-id> --uri <resource-uri> -o json
 ```
 
 Notes:

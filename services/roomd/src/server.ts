@@ -1,6 +1,12 @@
 #!/usr/bin/env node
 import cors from "cors";
 import express from "express";
+import {
+  CompleteRequestParamsSchema,
+  GetPromptRequestParamsSchema,
+  SubscribeRequestParamsSchema,
+  UnsubscribeRequestParamsSchema,
+} from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { RealMcpSessionFactory } from "./mcp";
 import {
@@ -253,6 +259,74 @@ app.post(
         req.params.roomId,
         req.params.instanceId,
         body.cursor,
+      );
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post(
+  "/rooms/:roomId/instances/:instanceId/prompts/get",
+  async (req, res, next) => {
+    try {
+      const body = GetPromptRequestParamsSchema.parse(req.body);
+      const result = await store.getInstancePrompt(
+        req.params.roomId,
+        req.params.instanceId,
+        body,
+      );
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post(
+  "/rooms/:roomId/instances/:instanceId/completion/complete",
+  async (req, res, next) => {
+    try {
+      const body = CompleteRequestParamsSchema.parse(req.body);
+      const result = await store.completeInstance(
+        req.params.roomId,
+        req.params.instanceId,
+        body,
+      );
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post(
+  "/rooms/:roomId/instances/:instanceId/resources/subscribe",
+  async (req, res, next) => {
+    try {
+      const body = SubscribeRequestParamsSchema.parse(req.body);
+      const result = await store.subscribeInstanceResource(
+        req.params.roomId,
+        req.params.instanceId,
+        body,
+      );
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.post(
+  "/rooms/:roomId/instances/:instanceId/resources/unsubscribe",
+  async (req, res, next) => {
+    try {
+      const body = UnsubscribeRequestParamsSchema.parse(req.body);
+      const result = await store.unsubscribeInstanceResource(
+        req.params.roomId,
+        req.params.instanceId,
+        body,
       );
       res.json(result);
     } catch (error) {

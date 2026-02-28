@@ -178,6 +178,43 @@ export interface ToolUiResource {
   permissions?: UiResourcePermissions;
 }
 
+export interface PromptGetParams {
+  _meta?: Record<string, unknown>;
+  name: string;
+  arguments?: Record<string, string>;
+}
+
+export type CompletionRef =
+  | {
+      type: "ref/prompt";
+      name: string;
+    }
+  | {
+      type: "ref/resource";
+      uri: string;
+    };
+
+export interface CompletionContext {
+  arguments?: Record<string, string>;
+}
+
+export interface CompletionArgument {
+  name: string;
+  value: string;
+}
+
+export interface CompletionCompleteParams {
+  _meta?: Record<string, unknown>;
+  ref: CompletionRef;
+  argument: CompletionArgument;
+  context?: CompletionContext;
+}
+
+export interface ResourceSubscriptionParams {
+  _meta?: Record<string, unknown>;
+  uri: string;
+}
+
 export interface ServerInspection {
   server: string;
   tools: RoomMountTool[];
@@ -191,6 +228,10 @@ export interface McpSession {
   getNegotiatedSession(): NegotiatedSession;
   listTools(params?: { cursor?: string }): Promise<unknown>;
   callTool(toolName: string, input: Record<string, unknown>): Promise<unknown>;
+  getPrompt(params: PromptGetParams): Promise<unknown>;
+  complete(params: CompletionCompleteParams): Promise<unknown>;
+  subscribeResource(params: ResourceSubscriptionParams): Promise<unknown>;
+  unsubscribeResource(params: ResourceSubscriptionParams): Promise<unknown>;
   readUiResource(uri: string): Promise<ToolUiResource>;
   listResources(params?: { cursor?: string }): Promise<unknown>;
   readResource(params: { uri: string }): Promise<unknown>;

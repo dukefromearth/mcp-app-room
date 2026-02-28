@@ -1,6 +1,9 @@
 # Title
 Add Missing Core Server Primitive Endpoints (Prompts/Get, Completion, Resource Subscriptions)
 
+# Status
+Closed (implemented on 2026-02-28)
+
 # Priority
 P0
 
