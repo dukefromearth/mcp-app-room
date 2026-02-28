@@ -14,8 +14,11 @@ Artifacts in this directory are generated from static analysis and should remain
 ## Regeneration
 
 ```bash
+npm run arch                     # stream all Mermaid graphs to stdout
+npm run arch -- --deps           # stream dependency graph only
+npm run arch -- --types          # stream type graph only
+npm run arch -- --callgraph      # stream call graph only
 npm run arch:gen
-npm run arch:deps:mermaid
 npm run arch:check
 ```
 

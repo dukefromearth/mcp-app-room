@@ -155,9 +155,61 @@ function shouldExcludeByName(name, filters) {
   return filters.some((regex) => regex.test(name));
 }
 
+function parseCliArgs(argv) {
+  const positional = [];
+  const flags = new Set();
+  let configPathArg;
+
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === "--config") {
+      configPathArg = argv[i + 1];
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith("--")) {
+      flags.add(arg);
+    } else {
+      positional.push(arg);
+    }
+  }
+
+  const stdout = flags.has("--stdout");
+  const typesOnly = flags.has("--types-only");
+  const callgraphOnly = flags.has("--callgraph-only");
+  const typesSelected = flags.has("--types");
+  const callgraphSelected = flags.has("--callgraph");
+
+  let includeTypes = true;
+  let includeCallgraph = true;
+  if (typesOnly) {
+    includeTypes = true;
+    includeCallgraph = false;
+  } else if (callgraphOnly) {
+    includeTypes = false;
+    includeCallgraph = true;
+  } else if (typesSelected || callgraphSelected) {
+    includeTypes = typesSelected;
+    includeCallgraph = callgraphSelected;
+  }
+
+  return {
+    outputDirArg: positional[0] ?? "docs/generated",
+    configPathArg: configPathArg ?? positional[1] ?? "tools/arch/arch.config.json",
+    stdout,
+    includeTypes,
+    includeCallgraph,
+  };
+}
+
 async function main() {
-  const outputDirArg = process.argv[2] ?? "docs/generated";
-  const configPathArg = process.argv[3] ?? "tools/arch/arch.config.json";
+  const {
+    outputDirArg,
+    configPathArg,
+    stdout,
+    includeTypes,
+    includeCallgraph,
+  } = parseCliArgs(process.argv.slice(2));
 
   const repoRoot = process.cwd();
   const outputDir = path.resolve(repoRoot, outputDirArg);
@@ -608,10 +660,32 @@ async function main() {
     callgraphMermaidLines.push(`  ${edge.from.id} --> ${edge.to.id}`);
   }
 
+  const outputs = {
+    typesMmd: `${typeLines.join("\n")}\n`,
+    callgraphTxt: `${callgraphTxtLines.join("\n")}\n`,
+    callgraphMmd: `${callgraphMermaidLines.join("\n")}\n`,
+  };
+
+  if (stdout) {
+    if (includeTypes) {
+      process.stdout.write("%% graph:types\n");
+      process.stdout.write(outputs.typesMmd);
+    }
+    if (includeCallgraph) {
+      process.stdout.write("%% graph:callgraph\n");
+      process.stdout.write(outputs.callgraphMmd);
+    }
+    return;
+  }
+
   await fs.mkdir(outputDir, { recursive: true });
-  await fs.writeFile(path.join(outputDir, "types.mmd"), `${typeLines.join("\n")}\n`, "utf8");
-  await fs.writeFile(path.join(outputDir, "callgraph-app.txt"), `${callgraphTxtLines.join("\n")}\n`, "utf8");
-  await fs.writeFile(path.join(outputDir, "callgraph.mmd"), `${callgraphMermaidLines.join("\n")}\n`, "utf8");
+  if (includeTypes) {
+    await fs.writeFile(path.join(outputDir, "types.mmd"), outputs.typesMmd, "utf8");
+  }
+  if (includeCallgraph) {
+    await fs.writeFile(path.join(outputDir, "callgraph-app.txt"), outputs.callgraphTxt, "utf8");
+    await fs.writeFile(path.join(outputDir, "callgraph.mmd"), outputs.callgraphMmd, "utf8");
+  }
 }
 
 main().catch((error) => {

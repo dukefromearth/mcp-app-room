@@ -91,8 +91,16 @@ Full policy, target-state rules, and baseline process are documented in
 
 ## Architecture Diagrams
 
-Compiler-backed architecture artifacts (dependency graph, type diagram, call graph)
-are generated to `docs/generated/`.
+Stream Mermaid graphs to stdout (no files written):
+
+```bash
+npm run arch                     # deps + types + callgraph (default)
+npm run arch -- --deps           # deps only
+npm run arch -- --types          # types only
+npm run arch -- --callgraph      # callgraph only
+```
+
+File-based artifact regeneration still exists for checked-in docs:
 
 ```bash
 npm run arch:gen

@@ -9,10 +9,30 @@ Architecture generation is driven by:
 Run from repo root:
 
 ```bash
-npm run arch:gen
+npm run arch
 ```
 
-This writes artifacts to `docs/generated/` by default.
+`npm run arch` prints Mermaid output to stdout and writes no files.
+
+Default output includes all graph families:
+
+- dependency graph
+- type graph
+- call graph
+
+Select exactly one graph family when needed:
+
+```bash
+npm run arch -- --deps
+npm run arch -- --types
+npm run arch -- --callgraph
+```
+
+Use file-based generation only when you explicitly need `docs/generated/` artifacts:
+
+```bash
+npm run arch:gen
+```
 
 Generated files:
 
