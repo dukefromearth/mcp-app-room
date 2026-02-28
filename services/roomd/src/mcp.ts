@@ -1,8 +1,6 @@
 import {
   RESOURCE_MIME_TYPE,
   McpUiResourceMetaSchema,
-  type McpUiResourceCsp,
-  type McpUiResourcePermissions,
 } from "@modelcontextprotocol/ext-apps/app-bridge";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
@@ -11,111 +9,193 @@ import {
   type StdioServerParameters,
 } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { Resource } from "@modelcontextprotocol/sdk/types.js";
+import {
+  CreateMessageRequestSchema,
+  ElicitRequestSchema,
+  ListRootsRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js";
+import { RoomdAuthError } from "./errors";
 import {
   normalizeServerTarget,
   parseServerDescriptor,
 } from "./server-target";
 import type {
-  CompletionCompleteParams,
+  HttpAuthStrategyConfig,
   McpSession,
   McpSessionFactory,
-  NegotiatedSession,
-  PromptGetParams,
-  ResourceSubscriptionParams,
   ServerDescriptor,
   SessionTransportKind,
-  ToolUiResource,
 } from "./types";
+import { ClientCapabilityRegistry } from "./client-capabilities/registry";
+import {
+  buildAuthHeaders,
+  isUnauthorizedTransportError,
+  resolveHttpAuthStrategy,
+} from "./mcp-auth";
+import { registerClientCapabilityHandlers } from "./mcp-client-capabilities";
+import type { UiResourceMeta } from "./mcp-ui-resource";
+import { buildNegotiatedSession, readProtocolVersion } from "./mcp-session-metadata";
+import { RealMcpSession } from "./mcp-session";
 
 const IMPLEMENTATION = { name: "roomd", version: "0.1.0" };
-
-interface ResourceMetaContainer {
-  _meta?: { ui?: unknown };
-  meta?: { ui?: unknown };
-}
-
-type UiResourceMeta = {
-  csp?: McpUiResourceCsp;
-  permissions?: McpUiResourcePermissions;
-};
 
 interface ConnectedClient {
   client: Client;
   transport: SessionTransportKind;
   protocolVersion?: string;
+  clientCapabilities?: Record<string, unknown>;
 }
 
 interface TransportAdapter {
   readonly kind: SessionTransportKind;
   canHandle(server: ServerDescriptor): boolean;
-  connect(server: ServerDescriptor): Promise<ConnectedClient>;
+  connect(
+    roomId: string,
+    serverKey: string,
+    server: ServerDescriptor,
+  ): Promise<ConnectedClient>;
 }
 
 interface RealMcpSessionFactoryOptions {
   stdioCommandAllowlist?: string[];
+  httpAuthConfig?: Record<string, HttpAuthStrategyConfig>;
+  clientCapabilityRegistry?: ClientCapabilityRegistry;
 }
 
 class HttpTransportAdapter implements TransportAdapter {
   readonly kind: SessionTransportKind = "streamable-http";
 
+  constructor(
+    private readonly authConfig: Record<string, HttpAuthStrategyConfig>,
+    private readonly capabilityRegistry?: ClientCapabilityRegistry,
+  ) {}
+
   canHandle(server: ServerDescriptor): boolean {
     return server.kind === "http";
   }
 
-  async connect(server: ServerDescriptor): Promise<ConnectedClient> {
+  async connect(
+    roomId: string,
+    serverKey: string,
+    server: ServerDescriptor,
+  ): Promise<ConnectedClient> {
     if (server.kind !== "http") {
       throw new Error("HTTP adapter only supports HTTP descriptors");
     }
 
     const url = new URL(server.url);
-    const streamableError: unknown[] = [];
+    const strategy = resolveHttpAuthStrategy(server.url, this.authConfig);
+    const authHeaders = buildAuthHeaders(strategy, server.url);
+    const requestInit =
+      Object.keys(authHeaders).length > 0
+        ? ({ headers: authHeaders } satisfies RequestInit)
+        : undefined;
+
+    const advertisedCapabilities = readAdvertisedCapabilities(
+      this.capabilityRegistry,
+      roomId,
+      serverKey,
+    );
+    const streamableClient = createConfiguredClient(
+      roomId,
+      serverKey,
+      advertisedCapabilities,
+      this.capabilityRegistry,
+    );
+
+    const streamableErrors: unknown[] = [];
 
     try {
-      const transport = new StreamableHTTPClientTransport(url);
-      const client = new Client(IMPLEMENTATION);
-      await client.connect(transport);
+      const transport = new StreamableHTTPClientTransport(
+        url,
+        requestInit ? { requestInit } : undefined,
+      );
+      await streamableClient.connect(transport);
       return {
-        client,
+        client: streamableClient,
         transport: "streamable-http",
         protocolVersion: readProtocolVersion(transport),
+        clientCapabilities: advertisedCapabilities,
       };
     } catch (error) {
-      streamableError.push(error);
+      streamableErrors.push(error);
     }
 
     try {
-      const transport = new SSEClientTransport(url);
-      const client = new Client(IMPLEMENTATION);
-      await client.connect(transport);
+      const sseClient = createConfiguredClient(
+        roomId,
+        serverKey,
+        advertisedCapabilities,
+        this.capabilityRegistry,
+      );
+      const transport = new SSEClientTransport(
+        url,
+        requestInit ? { requestInit } : undefined,
+      );
+      await sseClient.connect(transport);
       return {
-        client,
+        client: sseClient,
         transport: "legacy-sse",
         protocolVersion: readProtocolVersion(transport),
+        clientCapabilities: advertisedCapabilities,
       };
     } catch (error) {
-      streamableError.push(error);
+      streamableErrors.push(error);
     }
 
-    const causes = streamableError
+    if (streamableErrors.some((error) => isUnauthorizedTransportError(error))) {
+      if (strategy.type === "none") {
+        throw new RoomdAuthError(
+          401,
+          "AUTH_REQUIRED",
+          `Authentication required for ${server.url}`,
+          {
+            hint: "Configure ROOMD_HTTP_AUTH_CONFIG with a bearer token for this server.",
+            details: { server: server.url, strategy: strategy.type },
+          },
+        );
+      }
+
+      throw new RoomdAuthError(
+        401,
+        "AUTH_FAILED",
+        `Authentication failed for ${server.url}`,
+        {
+          details: {
+            server: server.url,
+            strategy: strategy.type,
+          },
+        },
+      );
+    }
+
+    const causes = streamableErrors
       .map((error) => (error instanceof Error ? error.message : String(error)))
       .join("; ");
     throw new Error(
       `Unable to establish HTTP/SSE MCP transport for ${server.url}: ${causes}`,
     );
   }
+
 }
 
 class StdioTransportAdapter implements TransportAdapter {
   readonly kind: SessionTransportKind = "stdio";
 
-  constructor(private readonly commandAllowlist: string[]) {}
+  constructor(
+    private readonly commandAllowlist: string[],
+    private readonly capabilityRegistry?: ClientCapabilityRegistry,
+  ) {}
 
   canHandle(server: ServerDescriptor): boolean {
     return server.kind === "stdio";
   }
 
-  async connect(server: ServerDescriptor): Promise<ConnectedClient> {
+  async connect(
+    roomId: string,
+    serverKey: string,
+    server: ServerDescriptor,
+  ): Promise<ConnectedClient> {
     if (server.kind !== "stdio") {
       throw new Error("Stdio adapter only supports stdio descriptors");
     }
@@ -130,13 +210,25 @@ class StdioTransportAdapter implements TransportAdapter {
     };
 
     const transport = new StdioClientTransport(parameters);
-    const client = new Client(IMPLEMENTATION);
+    const advertisedCapabilities = readAdvertisedCapabilities(
+      this.capabilityRegistry,
+      roomId,
+      serverKey,
+    );
+    const client = createConfiguredClient(
+      roomId,
+      serverKey,
+      advertisedCapabilities,
+      this.capabilityRegistry,
+    );
+
     await client.connect(transport);
 
     return {
       client,
       transport: "stdio",
       protocolVersion: readProtocolVersion(transport),
+      clientCapabilities: advertisedCapabilities,
     };
   }
 
@@ -161,164 +253,20 @@ class StdioTransportAdapter implements TransportAdapter {
   }
 }
 
-class RealMcpSession implements McpSession {
-  private resourceCache: Map<string, Resource> = new Map();
-
-  constructor(
-    private readonly client: Client,
-    private readonly negotiatedSession: NegotiatedSession,
-  ) {}
-
-  getNegotiatedSession(): NegotiatedSession {
-    return {
-      ...this.negotiatedSession,
-      capabilities: { ...this.negotiatedSession.capabilities },
-      extensions: { ...this.negotiatedSession.extensions },
-    };
-  }
-
-  async close(): Promise<void> {
-    // GOTCHA: stdio subprocess shutdown fallback (SIGTERM/SIGKILL) is delegated
-    // to SDK transport close implementation; this must always run on release.
-    await this.client.close();
-  }
-
-  async callTool(toolName: string, input: Record<string, unknown>): Promise<unknown> {
-    return this.client.callTool({ name: toolName, arguments: input });
-  }
-
-  async getPrompt(params: PromptGetParams): Promise<unknown> {
-    return this.client.getPrompt(params);
-  }
-
-  async complete(params: CompletionCompleteParams): Promise<unknown> {
-    return this.client.complete(params);
-  }
-
-  async subscribeResource(params: ResourceSubscriptionParams): Promise<unknown> {
-    return this.client.subscribeResource(params);
-  }
-
-  async unsubscribeResource(params: ResourceSubscriptionParams): Promise<unknown> {
-    return this.client.unsubscribeResource(params);
-  }
-
-  async listTools(params?: { cursor?: string }): Promise<unknown> {
-    return this.client.listTools(params);
-  }
-
-  async readUiResource(uri: string): Promise<ToolUiResource> {
-    const resource = await this.client.readResource({ uri });
-
-    if (!resource || resource.contents.length !== 1) {
-      throw new Error(`Unexpected resource response for uri ${uri}`);
-    }
-
-    const content = resource.contents[0];
-    if (content.mimeType !== RESOURCE_MIME_TYPE) {
-      throw new Error(`Unsupported UI resource MIME type: ${content.mimeType}`);
-    }
-
-    const html =
-      "blob" in content
-        ? Buffer.from(content.blob, "base64").toString("utf8")
-        : content.text;
-
-    const contentMeta = parseUiResourceMeta(
-      readUiResourceMetaCandidate(content as ResourceMetaContainer),
-      "content-level",
-    );
-    const listingMeta = await this.readResourceListingMeta(uri);
-    const uiMeta = contentMeta ?? listingMeta;
-
-    return {
-      uiResourceUri: uri,
-      html,
-      csp: uiMeta?.csp,
-      permissions: uiMeta?.permissions,
-    };
-  }
-
-  async listResources(params?: { cursor?: string }): Promise<unknown> {
-    return this.client.listResources(params);
-  }
-
-  async readResource(params: { uri: string }): Promise<unknown> {
-    return this.client.readResource(params);
-  }
-
-  async listResourceTemplates(params?: { cursor?: string }): Promise<unknown> {
-    return this.client.listResourceTemplates(params);
-  }
-
-  async listPrompts(params?: { cursor?: string }): Promise<unknown> {
-    return this.client.listPrompts(params);
-  }
-
-  getServerCapabilities(): unknown {
-    return this.client.getServerCapabilities() ?? {};
-  }
-
-  private async readResourceListingMeta(
-    uri: string,
-  ): Promise<UiResourceMeta | undefined> {
-    if (!this.resourceCache.has(uri)) {
-      const listing = await this.client.listResources();
-      for (const resource of listing.resources) {
-        this.resourceCache.set(resource.uri, resource);
-      }
-    }
-
-    const listingResource = this.resourceCache.get(uri) as ResourceMetaContainer | undefined;
-    return parseUiResourceMeta(
-      readUiResourceMetaCandidate(listingResource),
-      "listing-level",
-    );
-  }
-}
-
-/**
- * Read `ui` metadata from MCP resource metadata containers.
- *
- * Supports both `_meta` (spec-compliant) and `meta` (legacy Python SDK quirk).
- */
-function readUiResourceMetaCandidate(
-  resource: ResourceMetaContainer | undefined,
-): unknown {
-  return resource?._meta?.ui ?? resource?.meta?.ui;
-}
-
-/**
- * Parse UI resource metadata using ext-apps schemas.
- *
- * Invalid metadata is ignored so session behavior remains stable even when a
- * server sends malformed optional metadata.
- */
-function parseUiResourceMeta(
-  rawMeta: unknown,
-  level: "content-level" | "listing-level",
-): UiResourceMeta | undefined {
-  if (rawMeta === undefined) {
-    return undefined;
-  }
-
-  const parsed = McpUiResourceMetaSchema.safeParse(rawMeta);
-  if (!parsed.success) {
-    console.warn(`[roomd] Ignoring invalid ${level} UI metadata:`, parsed.error.message);
-    return undefined;
-  }
-
-  return parsed.data;
-}
-
 export class RealMcpSessionFactory implements McpSessionFactory {
   private readonly sessions: Map<string, Promise<McpSession>> = new Map();
   private readonly adapters: TransportAdapter[];
 
   constructor(options: RealMcpSessionFactoryOptions = {}) {
     this.adapters = [
-      new StdioTransportAdapter(options.stdioCommandAllowlist ?? []),
-      new HttpTransportAdapter(),
+      new StdioTransportAdapter(
+        options.stdioCommandAllowlist ?? [],
+        options.clientCapabilityRegistry,
+      ),
+      new HttpTransportAdapter(
+        options.httpAuthConfig ?? {},
+        options.clientCapabilityRegistry,
+      ),
     ];
   }
 
@@ -336,14 +284,19 @@ export class RealMcpSessionFactory implements McpSessionFactory {
           throw new Error(`No transport adapter available for server: ${normalizedServer}`);
         }
 
-        const connected = await adapter.connect(descriptor);
+        const connected = await adapter.connect(roomId, normalizedServer, descriptor);
         return new RealMcpSession(
           connected.client,
           buildNegotiatedSession(
             connected.client,
             connected.transport,
             connected.protocolVersion,
+            connected.clientCapabilities,
           ),
+          {
+            resourceMimeType: RESOURCE_MIME_TYPE,
+            safeParseUiMeta,
+          },
         );
       })();
 
@@ -383,35 +336,54 @@ export class RealMcpSessionFactory implements McpSessionFactory {
   }
 }
 
-function buildNegotiatedSession(
-  client: Client,
-  transport: SessionTransportKind,
-  protocolVersion: string | undefined,
-): NegotiatedSession {
-  const capabilities = asRecord(client.getServerCapabilities()) ?? {};
-  const extensions = asRecord(capabilities.experimental) ?? {};
-  return {
-    protocolVersion,
-    capabilities,
-    extensions,
-    transport,
-  };
+function readAdvertisedCapabilities(
+  capabilityRegistry: ClientCapabilityRegistry | undefined,
+  roomId: string,
+  serverKey: string,
+): Record<string, unknown> {
+  return capabilityRegistry?.getAdvertisedClientCapabilities(roomId, serverKey) ?? {};
 }
 
-function readProtocolVersion(transport: object): string | undefined {
-  const protocolVersion =
-    asString((transport as { protocolVersion?: unknown }).protocolVersion) ??
-    asString((transport as { _protocolVersion?: unknown })._protocolVersion);
-  return protocolVersion;
+function createConfiguredClient(
+  roomId: string,
+  serverKey: string,
+  advertisedCapabilities: Record<string, unknown>,
+  capabilityRegistry: ClientCapabilityRegistry | undefined,
+): Client {
+  const client = new Client(IMPLEMENTATION, {
+    capabilities: advertisedCapabilities,
+  });
+
+  registerClientCapabilityHandlers(
+    client,
+    {
+      listRootsRequestSchema: ListRootsRequestSchema,
+      createMessageRequestSchema: CreateMessageRequestSchema,
+      elicitRequestSchema: ElicitRequestSchema,
+    },
+    advertisedCapabilities,
+    roomId,
+    serverKey,
+    capabilityRegistry,
+  );
+
+  return client;
 }
 
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return undefined;
+function safeParseUiMeta(rawMeta: unknown): {
+  success: boolean;
+  data?: UiResourceMeta;
+  errorMessage?: string;
+} {
+  const parsed = McpUiResourceMetaSchema.safeParse(rawMeta);
+  if (parsed.success) {
+    return {
+      success: true,
+      data: parsed.data,
+    };
   }
-  return value as Record<string, unknown>;
-}
-
-function asString(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+  return {
+    success: false,
+    errorMessage: parsed.error.message,
+  };
 }

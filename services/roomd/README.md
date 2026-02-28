@@ -14,6 +14,12 @@ Auxiliary host endpoints:
 
 - `GET /rooms/:roomId/instances/:instanceId/ui`
 - `GET /rooms/:roomId/instances/:instanceId/capabilities`
+- `GET /rooms/:roomId/instances/:instanceId/client-capabilities`
+- `PUT /rooms/:roomId/instances/:instanceId/client-capabilities/roots`
+- `PATCH /rooms/:roomId/instances/:instanceId/client-capabilities/sampling`
+- `PATCH /rooms/:roomId/instances/:instanceId/client-capabilities/elicitation`
+- `POST /rooms/:roomId/instances/:instanceId/client-capabilities/sampling/preview`
+- `POST /rooms/:roomId/instances/:instanceId/client-capabilities/elicitation/preview`
 - `POST /rooms/:roomId/instances/:instanceId/tools/list`
 - `POST /rooms/:roomId/instances/:instanceId/tools/call`
 - `POST /rooms/:roomId/instances/:instanceId/resources/list`
@@ -47,6 +53,34 @@ Mounted state persists negotiated session metadata:
 - `capabilities`
 - `extensions`
 - `transport`
+- `clientCapabilities` (advertised client capability negotiation snapshot)
+
+Mount commands can include optional `clientCapabilities` with policy patches for:
+- `roots`: enabled/listChanged + initial roots.
+- `sampling`: enabled, HITL requirement, tool use, max tokens, default model.
+- `elicitation`: enabled, form/url mode toggles, sensitive URL enforcement, default action.
+
+## HTTP Security & Auth
+
+Remote HTTP defaults are hardened:
+- loopback HTTP targets are allowed by default.
+- non-loopback HTTP targets are blocked unless `ROOMD_ALLOW_REMOTE_HTTP_SERVERS=true`.
+- when remote HTTP is enabled, target origin must be in `ROOMD_REMOTE_HTTP_ORIGIN_ALLOWLIST` (or `*`).
+
+Auth strategy is configured by server URL prefix via `ROOMD_HTTP_AUTH_CONFIG` JSON:
+
+```json
+{
+  "http://127.0.0.1:3001/": { "type": "none" },
+  "https://api.example.com/": { "type": "bearer", "token": "env-or-secret-value" },
+  "https://oauth.example.com/": { "type": "oauth", "issuer": "https://issuer.example.com" }
+}
+```
+
+Supported strategy types:
+- `none`
+- `bearer` (adds `Authorization: Bearer <token>`)
+- `oauth` (placeholder boundary, returns typed `AUTH_DISCOVERY_FAILED` until interactive flow is implemented)
 
 ## Error Contract
 
@@ -74,6 +108,9 @@ Current canonical codes:
 - `NO_UI_RESOURCE`
 - `UI_RESOURCE_INVALID`
 - `INVALID_COMMAND`
+- `AUTH_REQUIRED`
+- `AUTH_FAILED`
+- `AUTH_DISCOVERY_FAILED`
 - `UPSTREAM_TRANSPORT_ERROR`
 - `INTERNAL_ERROR`
 

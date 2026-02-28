@@ -3,6 +3,7 @@ import {
   HttpError,
   invalidPayloadError,
   mapUnknownError,
+  RoomdAuthError,
 } from "../src/errors";
 
 describe("roomd error contracts", () => {
@@ -45,6 +46,24 @@ describe("roomd error contracts", () => {
       code: "UPSTREAM_TRANSPORT_ERROR",
       error: "Upstream MCP request failed",
       details: { cause: "connect ECONNREFUSED" },
+    });
+  });
+
+  it("maps auth failures to stable typed error responses", () => {
+    const mapped = mapUnknownError(
+      new RoomdAuthError(401, "AUTH_FAILED", "Authentication failed", {
+        details: { server: "http://localhost:3001/mcp" },
+        hint: "Update ROOMD_HTTP_AUTH_CONFIG token.",
+      }),
+    );
+
+    expect(mapped.statusCode).toBe(401);
+    expect(mapped.toResponseBody()).toEqual({
+      ok: false,
+      code: "AUTH_FAILED",
+      error: "Authentication failed",
+      details: { server: "http://localhost:3001/mcp" },
+      hint: "Update ROOMD_HTTP_AUTH_CONFIG token.",
     });
   });
 });

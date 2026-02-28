@@ -10,6 +10,9 @@ export type RoomdErrorCode =
   | "NO_UI_RESOURCE"
   | "UI_RESOURCE_INVALID"
   | "INVALID_COMMAND"
+  | "AUTH_REQUIRED"
+  | "AUTH_FAILED"
+  | "AUTH_DISCOVERY_FAILED"
   | "UPSTREAM_TRANSPORT_ERROR"
   | "INTERNAL_ERROR";
 
@@ -53,6 +56,28 @@ export class HttpError extends Error {
   }
 }
 
+type AuthErrorCode =
+  | "AUTH_REQUIRED"
+  | "AUTH_FAILED"
+  | "AUTH_DISCOVERY_FAILED";
+
+export class RoomdAuthError extends Error {
+  readonly details?: Record<string, unknown>;
+  readonly hint?: string;
+
+  constructor(
+    readonly statusCode: number,
+    readonly code: AuthErrorCode,
+    message: string,
+    options: HttpErrorOptions = {},
+  ) {
+    super(message);
+    this.name = "RoomdAuthError";
+    this.details = options.details;
+    this.hint = options.hint;
+  }
+}
+
 export function invalidPayloadError(details?: Record<string, unknown>): HttpError {
   return new HttpError(400, "INVALID_PAYLOAD", "Invalid payload", {
     details,
@@ -62,6 +87,13 @@ export function invalidPayloadError(details?: Record<string, unknown>): HttpErro
 export function mapUnknownError(error: unknown): HttpError {
   if (error instanceof HttpError) {
     return error;
+  }
+
+  if (error instanceof RoomdAuthError) {
+    return new HttpError(error.statusCode, error.code, error.message, {
+      ...(error.details ? { details: error.details } : {}),
+      ...(error.hint ? { hint: error.hint } : {}),
+    });
   }
 
   if (error instanceof Error) {

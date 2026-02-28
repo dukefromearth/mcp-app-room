@@ -20,6 +20,7 @@ class FakeSession implements McpSession {
     private readonly onComplete: (params: CompletionCompleteParams) => Promise<unknown>,
     private readonly onSubscribe: (params: ResourceSubscriptionParams) => Promise<unknown>,
     private readonly onUnsubscribe: (params: ResourceSubscriptionParams) => Promise<unknown>,
+    private readonly onNotifyRootsListChanged: () => void,
   ) {}
 
   getNegotiatedSession(): NegotiatedSession {
@@ -27,11 +28,18 @@ class FakeSession implements McpSession {
       ...this.negotiatedSession,
       capabilities: { ...this.negotiatedSession.capabilities },
       extensions: { ...this.negotiatedSession.extensions },
+      ...(this.negotiatedSession.clientCapabilities
+        ? { clientCapabilities: { ...this.negotiatedSession.clientCapabilities } }
+        : {}),
     };
   }
 
   async close(): Promise<void> {
     return Promise.resolve();
+  }
+
+  async notifyRootsListChanged(): Promise<void> {
+    this.onNotifyRootsListChanged();
   }
 
   async listTools(): Promise<unknown> {
@@ -112,6 +120,13 @@ export interface NewStoreOptions {
   completeResult?: Promise<unknown>;
   subscribeResult?: Promise<unknown>;
   unsubscribeResult?: Promise<unknown>;
+  onNotifyRootsListChanged?: () => void;
+  storeOptions?: {
+    serverAllowlist?: string[];
+    stdioCommandAllowlist?: string[];
+    allowRemoteHttpServers?: boolean;
+    remoteHttpOriginAllowlist?: string[];
+  };
 }
 
 export function newStore(options: NewStoreOptions = {}): RoomStore {
@@ -172,12 +187,14 @@ export function newStore(options: NewStoreOptions = {}): RoomStore {
       options.subscribeResult ?? Promise.resolve({ ok: true, echo: params }),
     async (params) =>
       options.unsubscribeResult ?? Promise.resolve({ ok: true, echo: params }),
+    options.onNotifyRootsListChanged ?? (() => {}),
   );
 
   return new RoomStore(new FakeFactory(session), {
     eventWindowSize: 2,
     invocationHistoryLimit: 50,
     idempotencyKeyLimit: 50,
+    ...(options.storeOptions ?? {}),
   });
 }
 
