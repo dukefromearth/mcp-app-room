@@ -90,3 +90,15 @@ The room CLI is now implemented in Go at `tools/roomctl/cmd/roomctl` and can be 
 ```bash
 npm run roomd:cli -- --help
 ```
+
+## Conformance Client Runner
+
+`roomd` includes a conformance client command used by the root Tier 2 CI gate:
+
+```bash
+npm run --workspace services/roomd conformance:client:run -- http://localhost:3000/mcp
+```
+
+The command is scenario-driven via `MCP_CONFORMANCE_SCENARIO` and currently
+implements the `initialize` and `tools_call` scenarios used by the repo's
+applicable Tier 2 conformance slice.
