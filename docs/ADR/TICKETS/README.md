@@ -6,15 +6,13 @@ This folder contains implementation tickets derived from:
 
 Execution order (recommended):
 
-1. `01-capability-session-matrix.md`
-2. `02-core-server-primitives-parity.md`
-3. `04-roomd-error-taxonomy-and-surface-contracts.md`
-4. `05-conformance-ci-tier2-gate.md`
-5. `06-transport-adapter-architecture-and-stdio-design.md`
-6. `07-stdio-transport-implementation.md`
-7. `08-client-capabilities-roots-sampling-elicitation.md`
-8. `09-http-auth-strategy-and-security-hardening.md`
-9. `10-tier1-conformance-support-matrices-and-deprecation.md`
+1. `02-core-server-primitives-parity.md`
+2. `05-conformance-ci-tier2-gate.md`
+3. `06-transport-adapter-architecture-and-stdio-design.md`
+4. `07-stdio-transport-implementation.md`
+5. `08-client-capabilities-roots-sampling-elicitation.md`
+6. `09-http-auth-strategy-and-security-hardening.md`
+7. `10-tier1-conformance-support-matrices-and-deprecation.md`
 
 Milestone targets:
 
@@ -23,12 +21,18 @@ Milestone targets:
 
 ## Closed
 
+- `01-capability-session-matrix.md`
+  - moved to `CLOSED/`
+  - completed on 2026-02-28 (combined with ticket 04)
 - `03-mcp-apps-optional-mount-and-discovery.md`
   - moved to `CLOSED/`
   - merged via PR #2 on 2026-02-28
+- `04-roomd-error-taxonomy-and-surface-contracts.md`
+  - moved to `CLOSED/`
+  - completed on 2026-02-28 (combined with ticket 01)
 
 ## Next Up
 
-1. `01-capability-session-matrix.md`
-2. `02-core-server-primitives-parity.md`
-3. `04-roomd-error-taxonomy-and-surface-contracts.md`
+1. `02-core-server-primitives-parity.md`
+2. `05-conformance-ci-tier2-gate.md`
+3. `06-transport-adapter-architecture-and-stdio-design.md`
