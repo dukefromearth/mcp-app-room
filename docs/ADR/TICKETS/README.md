@@ -6,10 +6,9 @@ This folder contains implementation tickets derived from:
 
 Execution order (recommended):
 
-1. `05-conformance-ci-tier2-gate.md`
-2. `08-client-capabilities-roots-sampling-elicitation.md`
-3. `09-http-auth-strategy-and-security-hardening.md`
-4. `10-tier1-conformance-support-matrices-and-deprecation.md`
+1. `08-client-capabilities-roots-sampling-elicitation.md`
+2. `09-http-auth-strategy-and-security-hardening.md`
+3. `10-tier1-conformance-support-matrices-and-deprecation.md`
 
 Milestone targets:
 
@@ -36,9 +35,13 @@ Milestone targets:
 - `07-stdio-transport-implementation.md`
   - moved to `CLOSED/`
   - completed on 2026-02-28 (combined with ticket 06)
+- `05-conformance-ci-tier2-gate.md`
+  - moved to `CLOSED/`
+  - completed on 2026-02-28
 
 ## Next Up
 
-1. `05-conformance-ci-tier2-gate.md`
-2. `08-client-capabilities-roots-sampling-elicitation.md`
-3. `09-http-auth-strategy-and-security-hardening.md`
+1. `08-client-capabilities-roots-sampling-elicitation.md`
+2. `09-http-auth-strategy-and-security-hardening.md`
+   Recommended to combine with ticket 08 in one PR: shared capability/auth boundaries in `mcp.ts`, `store.ts`, `server.ts`, and `types.ts`.
+3. `10-tier1-conformance-support-matrices-and-deprecation.md`
