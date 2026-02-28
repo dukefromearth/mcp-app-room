@@ -7,11 +7,9 @@ This folder contains implementation tickets derived from:
 Execution order (recommended):
 
 1. `05-conformance-ci-tier2-gate.md`
-2. `06-transport-adapter-architecture-and-stdio-design.md`
-3. `07-stdio-transport-implementation.md`
-4. `08-client-capabilities-roots-sampling-elicitation.md`
-5. `09-http-auth-strategy-and-security-hardening.md`
-6. `10-tier1-conformance-support-matrices-and-deprecation.md`
+2. `08-client-capabilities-roots-sampling-elicitation.md`
+3. `09-http-auth-strategy-and-security-hardening.md`
+4. `10-tier1-conformance-support-matrices-and-deprecation.md`
 
 Milestone targets:
 
@@ -32,9 +30,15 @@ Milestone targets:
 - `04-roomd-error-taxonomy-and-surface-contracts.md`
   - moved to `CLOSED/`
   - completed on 2026-02-28 (combined with ticket 01)
+- `06-transport-adapter-architecture-and-stdio-design.md`
+  - moved to `CLOSED/`
+  - completed on 2026-02-28 (combined with ticket 07)
+- `07-stdio-transport-implementation.md`
+  - moved to `CLOSED/`
+  - completed on 2026-02-28 (combined with ticket 06)
 
 ## Next Up
 
 1. `05-conformance-ci-tier2-gate.md`
-2. `06-transport-adapter-architecture-and-stdio-design.md`
-3. `07-stdio-transport-implementation.md`
+2. `08-client-capabilities-roots-sampling-elicitation.md`
+3. `09-http-auth-strategy-and-security-hardening.md`

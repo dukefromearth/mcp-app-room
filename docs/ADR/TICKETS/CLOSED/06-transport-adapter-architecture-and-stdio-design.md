@@ -1,6 +1,9 @@
 # Title
 Design Transport Adapter Contract and stdio Server Descriptor
 
+# Status
+Closed (implemented together with Ticket 07 on 2026-02-28)
+
 # Priority
 P1
 

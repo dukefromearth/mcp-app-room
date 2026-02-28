@@ -1,6 +1,9 @@
 # Title
 Implement stdio Transport Adapter for Local MCP Servers
 
+# Status
+Closed (implemented together with Ticket 06 on 2026-02-28)
+
 # Priority
 P1
 
