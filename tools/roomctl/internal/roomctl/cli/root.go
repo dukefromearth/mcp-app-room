@@ -93,6 +93,10 @@ func newRootCmdWithOptions(opts *rootOptions) *cobra.Command {
 		newInstanceResourceReadCmd(opts),
 		newInstanceResourceTemplatesListCmd(opts),
 		newInstancePromptsListCmd(opts),
+		newInstancePromptsGetCmd(opts),
+		newInstanceCompleteCmd(opts),
+		newInstanceResourceSubscribeCmd(opts),
+		newInstanceResourceUnsubscribeCmd(opts),
 		newSelectCmd(opts),
 		newReorderCmd(opts),
 		newLayoutCmd(opts),
@@ -575,6 +579,130 @@ func newInstancePromptsListCmd(opts *rootOptions) *cobra.Command {
 	_ = cmd.MarkFlagRequired("room")
 	_ = cmd.MarkFlagRequired("instance")
 	return cmd
+}
+
+func newInstancePromptsGetCmd(opts *rootOptions) *cobra.Command {
+	var roomID string
+	var instanceID string
+	var name string
+	var arguments string
+
+	cmd := &cobra.Command{
+		Use:   "prompts-get --room <room-id> --instance <instance-id> --name <prompt-name> [--arguments '{\"k\":\"v\"}']",
+		Short: "Get a prompt from a mounted instance",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			object, err := parse.JSONObject(arguments)
+			if err != nil {
+				return err
+			}
+
+			stringArgs, err := mapStringAnyToString(object)
+			if err != nil {
+				return err
+			}
+
+			return runWithClient(opts, func(ctx context.Context, client *roomd.Client) (roomd.Envelope, error) {
+				return client.InstancePromptGet(ctx, roomID, instanceID, name, stringArgs)
+			})
+		},
+	}
+
+	cmd.Flags().StringVar(&roomID, "room", "", "Room ID")
+	cmd.Flags().StringVar(&instanceID, "instance", "", "Mount instance ID")
+	cmd.Flags().StringVar(&name, "name", "", "Prompt name")
+	cmd.Flags().StringVar(&arguments, "arguments", "{}", "Prompt arguments as JSON object with string values")
+	_ = cmd.MarkFlagRequired("room")
+	_ = cmd.MarkFlagRequired("instance")
+	_ = cmd.MarkFlagRequired("name")
+	return cmd
+}
+
+func newInstanceCompleteCmd(opts *rootOptions) *cobra.Command {
+	var roomID string
+	var instanceID string
+	var params string
+
+	cmd := &cobra.Command{
+		Use:   "complete --room <room-id> --instance <instance-id> --params '{\"ref\":{\"type\":\"ref/prompt\",\"name\":\"p\"},\"argument\":{\"name\":\"q\",\"value\":\"he\"}}'",
+		Short: "Request completion options from a mounted instance",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			object, err := parse.JSONObject(params)
+			if err != nil {
+				return err
+			}
+			return runWithClient(opts, func(ctx context.Context, client *roomd.Client) (roomd.Envelope, error) {
+				return client.InstanceComplete(ctx, roomID, instanceID, object)
+			})
+		},
+	}
+
+	cmd.Flags().StringVar(&roomID, "room", "", "Room ID")
+	cmd.Flags().StringVar(&instanceID, "instance", "", "Mount instance ID")
+	cmd.Flags().StringVar(&params, "params", "", "Completion params as JSON object")
+	_ = cmd.MarkFlagRequired("room")
+	_ = cmd.MarkFlagRequired("instance")
+	_ = cmd.MarkFlagRequired("params")
+	return cmd
+}
+
+func newInstanceResourceSubscribeCmd(opts *rootOptions) *cobra.Command {
+	var roomID string
+	var instanceID string
+	var uri string
+
+	cmd := &cobra.Command{
+		Use:   "resources-subscribe --room <room-id> --instance <instance-id> --uri <uri>",
+		Short: "Subscribe to resource updates for a mounted instance",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return runWithClient(opts, func(ctx context.Context, client *roomd.Client) (roomd.Envelope, error) {
+				return client.InstanceResourceSubscribe(ctx, roomID, instanceID, uri)
+			})
+		},
+	}
+
+	cmd.Flags().StringVar(&roomID, "room", "", "Room ID")
+	cmd.Flags().StringVar(&instanceID, "instance", "", "Mount instance ID")
+	cmd.Flags().StringVar(&uri, "uri", "", "Resource URI")
+	_ = cmd.MarkFlagRequired("room")
+	_ = cmd.MarkFlagRequired("instance")
+	_ = cmd.MarkFlagRequired("uri")
+	return cmd
+}
+
+func newInstanceResourceUnsubscribeCmd(opts *rootOptions) *cobra.Command {
+	var roomID string
+	var instanceID string
+	var uri string
+
+	cmd := &cobra.Command{
+		Use:   "resources-unsubscribe --room <room-id> --instance <instance-id> --uri <uri>",
+		Short: "Unsubscribe from resource updates for a mounted instance",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return runWithClient(opts, func(ctx context.Context, client *roomd.Client) (roomd.Envelope, error) {
+				return client.InstanceResourceUnsubscribe(ctx, roomID, instanceID, uri)
+			})
+		},
+	}
+
+	cmd.Flags().StringVar(&roomID, "room", "", "Room ID")
+	cmd.Flags().StringVar(&instanceID, "instance", "", "Mount instance ID")
+	cmd.Flags().StringVar(&uri, "uri", "", "Resource URI")
+	_ = cmd.MarkFlagRequired("room")
+	_ = cmd.MarkFlagRequired("instance")
+	_ = cmd.MarkFlagRequired("uri")
+	return cmd
+}
+
+func mapStringAnyToString(values map[string]any) (map[string]string, error) {
+	result := make(map[string]string, len(values))
+	for key, value := range values {
+		asString, ok := value.(string)
+		if !ok {
+			return nil, fmt.Errorf("expected string value for key %q", key)
+		}
+		result[key] = asString
+	}
+	return result, nil
 }
 
 func lookupByPath(root any, valuePath string) (any, bool) {
