@@ -6,13 +6,12 @@ This folder contains implementation tickets derived from:
 
 Execution order (recommended):
 
-1. `02-core-server-primitives-parity.md`
-2. `05-conformance-ci-tier2-gate.md`
-3. `06-transport-adapter-architecture-and-stdio-design.md`
-4. `07-stdio-transport-implementation.md`
-5. `08-client-capabilities-roots-sampling-elicitation.md`
-6. `09-http-auth-strategy-and-security-hardening.md`
-7. `10-tier1-conformance-support-matrices-and-deprecation.md`
+1. `05-conformance-ci-tier2-gate.md`
+2. `06-transport-adapter-architecture-and-stdio-design.md`
+3. `07-stdio-transport-implementation.md`
+4. `08-client-capabilities-roots-sampling-elicitation.md`
+5. `09-http-auth-strategy-and-security-hardening.md`
+6. `10-tier1-conformance-support-matrices-and-deprecation.md`
 
 Milestone targets:
 
@@ -24,6 +23,9 @@ Milestone targets:
 - `01-capability-session-matrix.md`
   - moved to `CLOSED/`
   - completed on 2026-02-28 (combined with ticket 04)
+- `02-core-server-primitives-parity.md`
+  - moved to `CLOSED/`
+  - completed on 2026-02-28
 - `03-mcp-apps-optional-mount-and-discovery.md`
   - moved to `CLOSED/`
   - merged via PR #2 on 2026-02-28
@@ -33,6 +35,6 @@ Milestone targets:
 
 ## Next Up
 
-1. `02-core-server-primitives-parity.md`
-2. `05-conformance-ci-tier2-gate.md`
-3. `06-transport-adapter-architecture-and-stdio-design.md`
+1. `05-conformance-ci-tier2-gate.md`
+2. `06-transport-adapter-architecture-and-stdio-design.md`
+3. `07-stdio-transport-implementation.md`
