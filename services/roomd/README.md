@@ -20,6 +20,10 @@ Auxiliary host endpoints:
 - `POST /rooms/:roomId/instances/:instanceId/resources/read`
 - `POST /rooms/:roomId/instances/:instanceId/resources/templates/list`
 - `POST /rooms/:roomId/instances/:instanceId/prompts/list`
+- `POST /rooms/:roomId/instances/:instanceId/prompts/get`
+- `POST /rooms/:roomId/instances/:instanceId/completion/complete`
+- `POST /rooms/:roomId/instances/:instanceId/resources/subscribe`
+- `POST /rooms/:roomId/instances/:instanceId/resources/unsubscribe`
 
 `mount` is app/server-level (not tool-level). `roomd` inspects the upstream MCP
 server, records tool catalog metadata, and selects a UI resource URI when one

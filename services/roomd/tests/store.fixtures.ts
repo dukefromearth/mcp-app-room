@@ -1,9 +1,12 @@
 import { RoomStore } from "../src/store";
 import type {
+  CompletionCompleteParams,
   CommandEnvelope,
   McpSession,
   McpSessionFactory,
   NegotiatedSession,
+  PromptGetParams,
+  ResourceSubscriptionParams,
 } from "../src/types";
 
 class FakeSession implements McpSession {
@@ -13,6 +16,10 @@ class FakeSession implements McpSession {
     private readonly failListResources: boolean,
     private readonly negotiatedSession: NegotiatedSession,
     private readonly onCallTool: (name: string, input: Record<string, unknown>) => Promise<unknown>,
+    private readonly onGetPrompt: (params: PromptGetParams) => Promise<unknown>,
+    private readonly onComplete: (params: CompletionCompleteParams) => Promise<unknown>,
+    private readonly onSubscribe: (params: ResourceSubscriptionParams) => Promise<unknown>,
+    private readonly onUnsubscribe: (params: ResourceSubscriptionParams) => Promise<unknown>,
   ) {}
 
   getNegotiatedSession(): NegotiatedSession {
@@ -29,6 +36,22 @@ class FakeSession implements McpSession {
 
   async callTool(name: string, input: Record<string, unknown>): Promise<unknown> {
     return this.onCallTool(name, input);
+  }
+
+  async getPrompt(params: PromptGetParams): Promise<unknown> {
+    return this.onGetPrompt(params);
+  }
+
+  async complete(params: CompletionCompleteParams): Promise<unknown> {
+    return this.onComplete(params);
+  }
+
+  async subscribeResource(params: ResourceSubscriptionParams): Promise<unknown> {
+    return this.onSubscribe(params);
+  }
+
+  async unsubscribeResource(params: ResourceSubscriptionParams): Promise<unknown> {
+    return this.onUnsubscribe(params);
   }
 
   async readUiResource(uri: string): Promise<{
@@ -77,6 +100,10 @@ export interface NewStoreOptions {
   invalidToolUiMetadata?: boolean;
   negotiatedSession?: Partial<NegotiatedSession>;
   callResult?: Promise<unknown>;
+  promptResult?: Promise<unknown>;
+  completeResult?: Promise<unknown>;
+  subscribeResult?: Promise<unknown>;
+  unsubscribeResult?: Promise<unknown>;
 }
 
 export function newStore(options: NewStoreOptions = {}): RoomStore {
@@ -119,6 +146,7 @@ export function newStore(options: NewStoreOptions = {}): RoomStore {
         tools: {},
         resources: {},
         prompts: {},
+        completions: {},
       },
       extensions: {
         "io.modelcontextprotocol/ui": {},
@@ -127,6 +155,15 @@ export function newStore(options: NewStoreOptions = {}): RoomStore {
       ...(options.negotiatedSession ?? {}),
     },
     async () => options.callResult ?? Promise.resolve({ content: [] }),
+    async (params) =>
+      options.promptResult ?? Promise.resolve({ messages: [], echo: params }),
+    async (params) =>
+      options.completeResult ??
+      Promise.resolve({ completion: { values: ["default"] }, echo: params }),
+    async (params) =>
+      options.subscribeResult ?? Promise.resolve({ ok: true, echo: params }),
+    async (params) =>
+      options.unsubscribeResult ?? Promise.resolve({ ok: true, echo: params }),
   );
 
   return new RoomStore(new FakeFactory(session), {

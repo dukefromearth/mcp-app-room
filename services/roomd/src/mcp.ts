@@ -9,9 +9,12 @@ import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Resource } from "@modelcontextprotocol/sdk/types.js";
 import type {
+  CompletionCompleteParams,
   McpSession,
   McpSessionFactory,
   NegotiatedSession,
+  PromptGetParams,
+  ResourceSubscriptionParams,
   SessionTransportKind,
   ToolUiResource,
 } from "./types";
@@ -76,6 +79,22 @@ class RealMcpSession implements McpSession {
 
   async callTool(toolName: string, input: Record<string, unknown>): Promise<unknown> {
     return this.client.callTool({ name: toolName, arguments: input });
+  }
+
+  async getPrompt(params: PromptGetParams): Promise<unknown> {
+    return this.client.getPrompt(params);
+  }
+
+  async complete(params: CompletionCompleteParams): Promise<unknown> {
+    return this.client.complete(params);
+  }
+
+  async subscribeResource(params: ResourceSubscriptionParams): Promise<unknown> {
+    return this.client.subscribeResource(params);
+  }
+
+  async unsubscribeResource(params: ResourceSubscriptionParams): Promise<unknown> {
+    return this.client.unsubscribeResource(params);
   }
 
   async listTools(params?: { cursor?: string }): Promise<unknown> {
