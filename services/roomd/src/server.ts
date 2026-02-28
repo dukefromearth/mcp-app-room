@@ -32,13 +32,20 @@ const idempotencyKeyLimit = Number.parseInt(
   10,
 );
 const serverAllowlist = parseCommaList(process.env.ROOMD_SERVER_ALLOWLIST);
+const stdioCommandAllowlist = parseCommaList(
+  process.env.ROOMD_STDIO_COMMAND_ALLOWLIST,
+);
 
-const store = new RoomStore(new RealMcpSessionFactory(), {
-  eventWindowSize,
-  invocationHistoryLimit,
-  idempotencyKeyLimit,
-  serverAllowlist,
-});
+const store = new RoomStore(
+  new RealMcpSessionFactory({ stdioCommandAllowlist }),
+  {
+    eventWindowSize,
+    invocationHistoryLimit,
+    idempotencyKeyLimit,
+    serverAllowlist,
+    stdioCommandAllowlist,
+  },
+);
 
 for (const roomId of parseCommaList(process.env.ROOMD_BOOTSTRAP_ROOMS)) {
   if (!store.hasRoom(roomId)) {
@@ -346,6 +353,11 @@ app.listen(port, () => {
   console.log(`[roomd] listening on http://localhost:${port}`);
   if (serverAllowlist.length > 0) {
     console.log(`[roomd] server allowlist: ${serverAllowlist.join(", ")}`);
+  }
+  if (stdioCommandAllowlist.length > 0) {
+    console.log(
+      `[roomd] stdio command allowlist: ${stdioCommandAllowlist.join(", ")}`,
+    );
   }
 });
 

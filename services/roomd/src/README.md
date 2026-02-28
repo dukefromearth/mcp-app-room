@@ -9,6 +9,7 @@ Runtime and domain modules for the room control plane.
 - `mcp.ts` and `server.ts` are integration/adapters and may import external SDKs.
 - `capabilities.ts` is the shared capability guard for all mounted-instance routes.
 - `errors.ts` is the canonical roomd error taxonomy and response mapper.
+- `server-target.ts` is the canonical parser/normalizer for HTTP and stdio server descriptors.
 
 ## Main files
 

@@ -30,6 +30,18 @@ server, records tool catalog metadata, and selects a UI resource URI when one
 is available. Non-UI mounts are valid and return `NO_UI_RESOURCE` on the `/ui`
 endpoint.
 
+## Server Targets
+
+`server` accepts either:
+- HTTP(S) URL (existing behavior)
+- stdio descriptor:
+  - `stdio://spawn?command=<cmd>&arg=<arg>&arg=<arg>&cwd=<cwd>&env.KEY=value`
+
+Stdio safety:
+- `ROOMD_STDIO_COMMAND_ALLOWLIST` controls allowed stdio commands.
+- empty allowlist disables stdio by default.
+- `*` allows all commands.
+
 Mounted state persists negotiated session metadata:
 - `protocolVersion`
 - `capabilities`

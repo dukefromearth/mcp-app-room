@@ -30,6 +30,10 @@ class FakeSession implements McpSession {
     };
   }
 
+  async close(): Promise<void> {
+    return Promise.resolve();
+  }
+
   async listTools(): Promise<unknown> {
     return { tools: this.tools };
   }
@@ -90,6 +94,10 @@ class FakeFactory implements McpSessionFactory {
 
   async getSession(): Promise<McpSession> {
     return this.session;
+  }
+
+  async releaseSession(): Promise<void> {
+    return Promise.resolve();
   }
 }
 
