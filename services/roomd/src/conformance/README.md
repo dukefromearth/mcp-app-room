@@ -10,11 +10,11 @@ Conformance runner and scoring utilities for `roomd`.
   summaries for CI/local workflows.
 - `check-threshold.ts` is the threshold gate parser for existing conformance
   artifacts.
-- `score.ts` owns scenario scoring and Tier 2 threshold evaluation logic.
+- `score.ts` owns scenario scoring and threshold evaluation logic.
 - `config.ts` centralizes pinned conformance versions, scenario scope, and
   threshold defaults.
 
 ## Scope
 
-Current applicable scenarios are intentionally limited to `initialize` and
-`tools_call` until roomd's client capability and auth tickets are completed.
+Current applicable required scenarios are `initialize` and `tools_call` for the
+roomd client boundary.

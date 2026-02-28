@@ -1,4 +1,4 @@
-name: conformance-tier2
+name: conformance-tier1
 
 on:
   pull_request:
@@ -7,7 +7,7 @@ on:
       - main
 
 jobs:
-  conformance-tier2:
+  conformance-tier1:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -22,12 +22,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run Tier 2 conformance gate
-        run: npm run conformance:tier2
+      - name: Run Tier 1 conformance gate
+        run: npm run conformance:tier1
 
       - name: Upload conformance artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: conformance-tier2-artifacts
+          name: conformance-tier1-artifacts
           path: artifacts/conformance

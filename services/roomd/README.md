@@ -130,7 +130,7 @@ npm run roomd:cli -- --help
 
 ## Conformance Client Runner
 
-`roomd` includes a conformance client command used by the root Tier 2 CI gate:
+`roomd` includes a conformance client command used by the root Tier 1 CI gate:
 
 ```bash
 npm run --workspace services/roomd conformance:client:run -- http://localhost:3000/mcp
@@ -138,4 +138,10 @@ npm run --workspace services/roomd conformance:client:run -- http://localhost:30
 
 The command is scenario-driven via `MCP_CONFORMANCE_SCENARIO` and currently
 implements the `initialize` and `tools_call` scenarios used by the repo's
-applicable Tier 2 conformance slice.
+applicable Tier 1 conformance slice.
+
+See repository-level policy docs for release contract details:
+
+- `docs/roomd-support-matrix.md`
+- `docs/roomd-deprecation-policy.md`
+- `docs/roomd-release-readiness-checklist.md`
