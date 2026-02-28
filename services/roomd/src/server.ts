@@ -17,6 +17,9 @@ import {
 } from "./schema";
 import { invalidPayloadError, mapUnknownError } from "./errors";
 import { RoomStore } from "./store";
+import { ClientCapabilityRegistry } from "./client-capabilities/registry";
+import { registerInstanceRoutes } from "./server-instance-routes";
+import type { HttpAuthStrategyConfig } from "./types";
 
 const port = Number.parseInt(process.env.ROOMD_PORT ?? "8090", 10);
 const eventWindowSize = Number.parseInt(
@@ -35,15 +38,30 @@ const serverAllowlist = parseCommaList(process.env.ROOMD_SERVER_ALLOWLIST);
 const stdioCommandAllowlist = parseCommaList(
   process.env.ROOMD_STDIO_COMMAND_ALLOWLIST,
 );
+const allowRemoteHttpServers = parseBoolean(
+  process.env.ROOMD_ALLOW_REMOTE_HTTP_SERVERS,
+);
+const remoteHttpOriginAllowlist = parseCommaList(
+  process.env.ROOMD_REMOTE_HTTP_ORIGIN_ALLOWLIST,
+);
+const httpAuthConfig = parseHttpAuthConfig(process.env.ROOMD_HTTP_AUTH_CONFIG);
+const clientCapabilityRegistry = new ClientCapabilityRegistry();
 
 const store = new RoomStore(
-  new RealMcpSessionFactory({ stdioCommandAllowlist }),
+  new RealMcpSessionFactory({
+    stdioCommandAllowlist,
+    httpAuthConfig,
+    clientCapabilityRegistry,
+  }),
   {
     eventWindowSize,
     invocationHistoryLimit,
     idempotencyKeyLimit,
     serverAllowlist,
     stdioCommandAllowlist,
+    allowRemoteHttpServers,
+    remoteHttpOriginAllowlist,
+    clientCapabilityRegistry,
   },
 );
 
@@ -132,215 +150,12 @@ app.post("/inspect/server", async (req, res, next) => {
   }
 });
 
-app.get("/rooms/:roomId/instances/:instanceId/ui", async (req, res, next) => {
-  try {
-    const resource = await store.getInstanceUiResource(
-      req.params.roomId,
-      req.params.instanceId,
-    );
-    res.json({ ok: true, resource });
-  } catch (error) {
-    next(error);
-  }
+registerInstanceRoutes(app, store, {
+  getPromptRequestParamsSchema: GetPromptRequestParamsSchema,
+  completeRequestParamsSchema: CompleteRequestParamsSchema,
+  subscribeRequestParamsSchema: SubscribeRequestParamsSchema,
+  unsubscribeRequestParamsSchema: UnsubscribeRequestParamsSchema,
 });
-
-app.get(
-  "/rooms/:roomId/instances/:instanceId/capabilities",
-  async (req, res, next) => {
-    try {
-      const capabilities = await store.getInstanceCapabilities(
-        req.params.roomId,
-        req.params.instanceId,
-      );
-      res.json({ ok: true, capabilities });
-    } catch (error) {
-      next(error);
-    }
-  },
-);
-
-app.post(
-  "/rooms/:roomId/instances/:instanceId/tools/list",
-  async (req, res, next) => {
-    try {
-      const body = z
-        .object({ cursor: z.string().optional() })
-        .parse(req.body ?? {});
-      const result = await store.listInstanceTools(
-        req.params.roomId,
-        req.params.instanceId,
-        body.cursor,
-      );
-      res.json(result);
-    } catch (error) {
-      next(error);
-    }
-  },
-);
-
-app.post(
-  "/rooms/:roomId/instances/:instanceId/tools/call",
-  async (req, res, next) => {
-    try {
-      const schema = z.object({
-        name: z.string().min(1),
-        arguments: z.record(z.string(), z.unknown()).optional(),
-      });
-      const body = schema.parse(req.body);
-      const result = await store.callInstanceTool(
-        req.params.roomId,
-        req.params.instanceId,
-        body.name,
-        body.arguments ?? {},
-      );
-      res.json(result);
-    } catch (error) {
-      next(error);
-    }
-  },
-);
-
-app.post(
-  "/rooms/:roomId/instances/:instanceId/resources/list",
-  async (req, res, next) => {
-    try {
-      const body = z
-        .object({ cursor: z.string().optional() })
-        .parse(req.body ?? {});
-      const result = await store.listInstanceResources(
-        req.params.roomId,
-        req.params.instanceId,
-        body.cursor,
-      );
-      res.json(result);
-    } catch (error) {
-      next(error);
-    }
-  },
-);
-
-app.post(
-  "/rooms/:roomId/instances/:instanceId/resources/read",
-  async (req, res, next) => {
-    try {
-      const body = z.object({ uri: z.string().min(1) }).parse(req.body);
-      const result = await store.readInstanceResource(
-        req.params.roomId,
-        req.params.instanceId,
-        body.uri,
-      );
-      res.json(result);
-    } catch (error) {
-      next(error);
-    }
-  },
-);
-
-app.post(
-  "/rooms/:roomId/instances/:instanceId/resources/templates/list",
-  async (req, res, next) => {
-    try {
-      const body = z
-        .object({ cursor: z.string().optional() })
-        .parse(req.body ?? {});
-      const result = await store.listInstanceResourceTemplates(
-        req.params.roomId,
-        req.params.instanceId,
-        body.cursor,
-      );
-      res.json(result);
-    } catch (error) {
-      next(error);
-    }
-  },
-);
-
-app.post(
-  "/rooms/:roomId/instances/:instanceId/prompts/list",
-  async (req, res, next) => {
-    try {
-      const body = z
-        .object({ cursor: z.string().optional() })
-        .parse(req.body ?? {});
-      const result = await store.listInstancePrompts(
-        req.params.roomId,
-        req.params.instanceId,
-        body.cursor,
-      );
-      res.json(result);
-    } catch (error) {
-      next(error);
-    }
-  },
-);
-
-app.post(
-  "/rooms/:roomId/instances/:instanceId/prompts/get",
-  async (req, res, next) => {
-    try {
-      const body = GetPromptRequestParamsSchema.parse(req.body);
-      const result = await store.getInstancePrompt(
-        req.params.roomId,
-        req.params.instanceId,
-        body,
-      );
-      res.json(result);
-    } catch (error) {
-      next(error);
-    }
-  },
-);
-
-app.post(
-  "/rooms/:roomId/instances/:instanceId/completion/complete",
-  async (req, res, next) => {
-    try {
-      const body = CompleteRequestParamsSchema.parse(req.body);
-      const result = await store.completeInstance(
-        req.params.roomId,
-        req.params.instanceId,
-        body,
-      );
-      res.json(result);
-    } catch (error) {
-      next(error);
-    }
-  },
-);
-
-app.post(
-  "/rooms/:roomId/instances/:instanceId/resources/subscribe",
-  async (req, res, next) => {
-    try {
-      const body = SubscribeRequestParamsSchema.parse(req.body);
-      const result = await store.subscribeInstanceResource(
-        req.params.roomId,
-        req.params.instanceId,
-        body,
-      );
-      res.json(result);
-    } catch (error) {
-      next(error);
-    }
-  },
-);
-
-app.post(
-  "/rooms/:roomId/instances/:instanceId/resources/unsubscribe",
-  async (req, res, next) => {
-    try {
-      const body = UnsubscribeRequestParamsSchema.parse(req.body);
-      const result = await store.unsubscribeInstanceResource(
-        req.params.roomId,
-        req.params.instanceId,
-        body,
-      );
-      res.json(result);
-    } catch (error) {
-      next(error);
-    }
-  },
-);
 
 app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   const mapped = error instanceof z.ZodError
@@ -359,6 +174,18 @@ app.listen(port, () => {
       `[roomd] stdio command allowlist: ${stdioCommandAllowlist.join(", ")}`,
     );
   }
+  if (allowRemoteHttpServers) {
+    const origins =
+      remoteHttpOriginAllowlist.length > 0
+        ? remoteHttpOriginAllowlist.join(", ")
+        : "(none)";
+    console.log(`[roomd] remote HTTP enabled; origin allowlist: ${origins}`);
+  }
+  if (Object.keys(httpAuthConfig).length > 0) {
+    console.log(
+      `[roomd] HTTP auth strategies configured for prefixes: ${Object.keys(httpAuthConfig).join(", ")}`,
+    );
+  }
 });
 
 function parseCommaList(value: string | undefined): string[] {
@@ -370,6 +197,46 @@ function parseCommaList(value: string | undefined): string[] {
     .split(",")
     .map((entry) => entry.trim())
     .filter((entry) => entry.length > 0);
+}
+
+function parseBoolean(value: string | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+  return value.trim().toLowerCase() === "true";
+}
+
+function parseHttpAuthConfig(
+  value: string | undefined,
+): Record<string, HttpAuthStrategyConfig> {
+  if (!value || value.trim().length === 0) {
+    return {};
+  }
+
+  const strategySchema = z.discriminatedUnion("type", [
+    z.object({ type: z.literal("none") }),
+    z.object({
+      type: z.literal("bearer"),
+      token: z.string(),
+    }),
+    z.object({
+      type: z.literal("oauth"),
+      issuer: z.string().min(1),
+      audience: z.string().min(1).optional(),
+    }),
+  ]);
+
+  const authConfigSchema = z.record(z.string().min(1), strategySchema);
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`ROOMD_HTTP_AUTH_CONFIG must be valid JSON: ${message}`);
+  }
+
+  return authConfigSchema.parse(parsed);
 }
 
 function parseSinceRevision(

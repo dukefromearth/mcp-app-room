@@ -15,12 +15,48 @@ export const gridContainerSchema = z.object({
   h: z.number().int().min(1),
 });
 
+export const clientRootSchema = z.object({
+  uri: z.string().min(1),
+  name: z.string().min(1).optional(),
+  _meta: z.record(z.string(), z.unknown()).optional(),
+});
+
+const mountClientRootsSchema = z.object({
+  enabled: z.boolean().optional(),
+  listChanged: z.boolean().optional(),
+  roots: z.array(clientRootSchema).optional(),
+});
+
+const mountClientSamplingSchema = z.object({
+  enabled: z.boolean().optional(),
+  requireHumanInTheLoop: z.boolean().optional(),
+  allowToolUse: z.boolean().optional(),
+  maxOutputTokens: z.number().int().min(1).optional(),
+  defaultModel: z.string().min(1).optional(),
+});
+
+const mountClientElicitationSchema = z.object({
+  enabled: z.boolean().optional(),
+  allowFormMode: z.boolean().optional(),
+  allowUrlMode: z.boolean().optional(),
+  requireUrlForSensitive: z.boolean().optional(),
+  sensitiveFieldKeywords: z.array(z.string().min(1)).optional(),
+  defaultAction: z.enum(["decline", "cancel"]).optional(),
+});
+
+export const mountClientCapabilitiesSchema = z.object({
+  roots: mountClientRootsSchema.optional(),
+  sampling: mountClientSamplingSchema.optional(),
+  elicitation: mountClientElicitationSchema.optional(),
+});
+
 const mountCommandSchema = z.object({
   type: z.literal("mount"),
   instanceId: z.string().min(1),
   server: serverTargetSchema,
   container: gridContainerSchema,
   uiResourceUri: z.string().min(1).optional(),
+  clientCapabilities: mountClientCapabilitiesSchema.optional(),
 });
 
 const hideCommandSchema = z.object({
@@ -150,6 +186,16 @@ export const createRoomSchema = z.object({
 export const inspectServerSchema = z.object({
   server: serverTargetSchema,
 });
+
+export const rootsUpdateSchema = z.object({
+  roots: z.array(clientRootSchema),
+});
+
+export const samplingUpdateSchema = mountClientSamplingSchema;
+
+export const elicitationUpdateSchema = mountClientElicitationSchema;
+
+export const capabilityPreviewSchema = z.record(z.string(), z.unknown());
 
 export const sinceRevisionSchema = z
   .string()

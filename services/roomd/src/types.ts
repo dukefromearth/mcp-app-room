@@ -2,6 +2,59 @@ export type UiResourceCsp = unknown;
 export type UiResourcePermissions = unknown;
 export type SessionTransportKind = "streamable-http" | "legacy-sse" | "stdio" | "unknown";
 
+export interface ClientRoot {
+  uri: string;
+  name?: string;
+  _meta?: Record<string, unknown>;
+}
+
+export interface ClientRootsConfig {
+  enabled: boolean;
+  listChanged: boolean;
+  roots: ClientRoot[];
+}
+
+export interface ClientSamplingConfig {
+  enabled: boolean;
+  requireHumanInTheLoop: boolean;
+  allowToolUse: boolean;
+  maxOutputTokens: number;
+  defaultModel: string;
+}
+
+export interface ClientElicitationConfig {
+  enabled: boolean;
+  allowFormMode: boolean;
+  allowUrlMode: boolean;
+  requireUrlForSensitive: boolean;
+  sensitiveFieldKeywords: string[];
+  defaultAction: "decline" | "cancel";
+}
+
+export interface MountClientCapabilitiesConfig {
+  roots?: Partial<ClientRootsConfig>;
+  sampling?: Partial<ClientSamplingConfig>;
+  elicitation?: Partial<ClientElicitationConfig>;
+}
+
+export interface InstanceClientCapabilitiesConfig {
+  roots: ClientRootsConfig;
+  sampling: ClientSamplingConfig;
+  elicitation: ClientElicitationConfig;
+}
+
+export interface SamplingPreviewResult {
+  action: "approve" | "deny";
+  reason?: string;
+  response?: unknown;
+}
+
+export interface ElicitationPreviewResult {
+  action: "accept" | "decline" | "cancel";
+  reason?: string;
+  response?: unknown;
+}
+
 export interface HttpServerDescriptor {
   kind: "http";
   url: string;
@@ -17,11 +70,26 @@ export interface StdioServerDescriptor {
 
 export type ServerDescriptor = HttpServerDescriptor | StdioServerDescriptor;
 
+export type HttpAuthStrategyConfig =
+  | {
+      type: "none";
+    }
+  | {
+      type: "bearer";
+      token: string;
+    }
+  | {
+      type: "oauth";
+      issuer: string;
+      audience?: string;
+    };
+
 export interface NegotiatedSession {
   protocolVersion?: string;
   capabilities: Record<string, unknown>;
   extensions: Record<string, unknown>;
   transport: SessionTransportKind;
+  clientCapabilities?: Record<string, unknown>;
 }
 
 export interface GridContainer {
@@ -154,6 +222,7 @@ export type RoomCommand =
       server: string;
       container: GridContainer;
       uiResourceUri?: string;
+      clientCapabilities?: MountClientCapabilitiesConfig;
     }
   | {
       type: "hide";
@@ -242,6 +311,7 @@ export interface ServerInspection {
 export interface McpSession {
   getNegotiatedSession(): NegotiatedSession;
   close(): Promise<void>;
+  notifyRootsListChanged(): Promise<void>;
   listTools(params?: { cursor?: string }): Promise<unknown>;
   callTool(toolName: string, input: Record<string, unknown>): Promise<unknown>;
   getPrompt(params: PromptGetParams): Promise<unknown>;

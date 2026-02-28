@@ -3,11 +3,15 @@ import { stableStringify } from "./hash";
 import { ensureServerCapability } from "./capabilities";
 import { HttpError } from "./errors";
 import { normalizeServerTarget, parseServerDescriptor } from "./server-target";
+import { ClientCapabilityRegistry } from "./client-capabilities/registry";
 import type {
+  ClientRoot,
   CompletionCompleteParams,
   CommandSuccessResponse,
+  ElicitationPreviewResult,
   GridContainer,
   IdempotencyRecord,
+  InstanceClientCapabilitiesConfig,
   LayoutAdapterName,
   LayoutOp,
   McpSession,
@@ -21,6 +25,7 @@ import type {
   RoomMount,
   RoomMountTool,
   RoomState,
+  SamplingPreviewResult,
   ServerInspection,
   ToolUiResource,
 } from "./types";
@@ -47,6 +52,9 @@ interface RoomStoreOptions {
   idempotencyKeyLimit?: number;
   serverAllowlist?: string[];
   stdioCommandAllowlist?: string[];
+  allowRemoteHttpServers?: boolean;
+  remoteHttpOriginAllowlist?: string[];
+  clientCapabilityRegistry?: ClientCapabilityRegistry;
 }
 
 interface CommandExecutionResult {
@@ -98,6 +106,9 @@ export class RoomStore {
   private readonly idempotencyKeyLimit: number;
   private readonly serverAllowlist: string[];
   private readonly stdioCommandAllowlist: string[];
+  private readonly allowRemoteHttpServers: boolean;
+  private readonly remoteHttpOriginAllowlist: string[];
+  private readonly clientCapabilityRegistry: ClientCapabilityRegistry;
 
   constructor(
     private readonly sessionFactory: McpSessionFactory,
@@ -108,6 +119,10 @@ export class RoomStore {
     this.idempotencyKeyLimit = options.idempotencyKeyLimit ?? 1000;
     this.serverAllowlist = options.serverAllowlist ?? [];
     this.stdioCommandAllowlist = options.stdioCommandAllowlist ?? [];
+    this.allowRemoteHttpServers = options.allowRemoteHttpServers ?? false;
+    this.remoteHttpOriginAllowlist = options.remoteHttpOriginAllowlist ?? [];
+    this.clientCapabilityRegistry =
+      options.clientCapabilityRegistry ?? new ClientCapabilityRegistry();
   }
 
   createRoom(roomId: string): RoomState {
@@ -271,6 +286,100 @@ export class RoomStore {
   ): Promise<unknown> {
     const mount = this.getInstanceMount(roomId, instanceId);
     return cloneUnknown(mount.session.capabilities);
+  }
+
+  async getInstanceClientCapabilities(
+    roomId: string,
+    instanceId: string,
+  ): Promise<InstanceClientCapabilitiesConfig> {
+    const mount = this.getInstanceMount(roomId, instanceId);
+    return this.clientCapabilityRegistry.getSnapshot(roomId, mount.server);
+  }
+
+  async setInstanceRoots(
+    roomId: string,
+    instanceId: string,
+    roots: ClientRoot[],
+  ): Promise<InstanceClientCapabilitiesConfig> {
+    const mount = this.getInstanceMount(roomId, instanceId);
+    const config = this.clientCapabilityRegistry.setRoots(roomId, mount.server, roots);
+
+    if (!config.roots.enabled) {
+      throw new HttpError(
+        400,
+        "UNSUPPORTED_CAPABILITY",
+        "Client roots capability is disabled for this instance",
+      );
+    }
+
+    if (config.roots.listChanged) {
+      const session = await this.getSession(roomId, mount.server);
+      await session.notifyRootsListChanged();
+    }
+
+    return config;
+  }
+
+  async configureInstanceSampling(
+    roomId: string,
+    instanceId: string,
+    patch: Partial<InstanceClientCapabilitiesConfig["sampling"]>,
+  ): Promise<InstanceClientCapabilitiesConfig> {
+    const mount = this.getInstanceMount(roomId, instanceId);
+    return this.clientCapabilityRegistry.updateSampling(roomId, mount.server, patch);
+  }
+
+  async configureInstanceElicitation(
+    roomId: string,
+    instanceId: string,
+    patch: Partial<InstanceClientCapabilitiesConfig["elicitation"]>,
+  ): Promise<InstanceClientCapabilitiesConfig> {
+    const mount = this.getInstanceMount(roomId, instanceId);
+    return this.clientCapabilityRegistry.updateElicitation(roomId, mount.server, patch);
+  }
+
+  async previewInstanceSampling(
+    roomId: string,
+    instanceId: string,
+    params: unknown,
+  ): Promise<SamplingPreviewResult> {
+    const mount = this.getInstanceMount(roomId, instanceId);
+    const config = this.clientCapabilityRegistry.getSnapshot(roomId, mount.server);
+    if (!config.sampling.enabled) {
+      throw new HttpError(
+        400,
+        "UNSUPPORTED_CAPABILITY",
+        "Client sampling capability is disabled for this instance",
+      );
+    }
+
+    return this.clientCapabilityRegistry.evaluateSampling(
+      roomId,
+      mount.server,
+      params,
+    );
+  }
+
+  async previewInstanceElicitation(
+    roomId: string,
+    instanceId: string,
+    params: unknown,
+  ): Promise<ElicitationPreviewResult> {
+    const mount = this.getInstanceMount(roomId, instanceId);
+    const config = this.clientCapabilityRegistry.getSnapshot(roomId, mount.server);
+    if (!config.elicitation.enabled) {
+      throw new HttpError(
+        400,
+        "UNSUPPORTED_CAPABILITY",
+        "Client elicitation capability is disabled for this instance",
+      );
+    }
+
+    return this.clientCapabilityRegistry.evaluateElicitation(
+      roomId,
+      mount.server,
+      params,
+    );
   }
 
   async callInstanceTool(
@@ -597,11 +706,25 @@ export class RoomStore {
     }
 
     const normalizedServer = normalizeServerTarget(command.server);
-    const inspection = await this.inspectServerWithSession(
+    this.clientCapabilityRegistry.configureForMount(
       room.roomId,
       normalizedServer,
+      command.clientCapabilities,
     );
-    const session = await this.getSession(room.roomId, normalizedServer);
+
+    let inspection: ServerInspection;
+    let session: McpSession;
+    try {
+      inspection = await this.inspectServerWithSession(
+        room.roomId,
+        normalizedServer,
+      );
+      session = await this.getSession(room.roomId, normalizedServer);
+    } catch (error) {
+      this.clientCapabilityRegistry.clear(room.roomId, normalizedServer);
+      throw error;
+    }
+
     const negotiated = cloneNegotiatedSession(session.getNegotiatedSession());
     room.sessions.set(normalizedServer, cloneNegotiatedSession(negotiated));
     const selectedUiResourceUri = this.selectMountUiResourceUri(
@@ -682,6 +805,7 @@ export class RoomStore {
     );
     if (!hasRemainingForServer) {
       room.sessions.delete(mountedServer);
+      this.clientCapabilityRegistry.clear(room.roomId, mountedServer);
       await this.sessionFactory.releaseSession(room.roomId, mountedServer);
     }
 
@@ -1167,22 +1291,65 @@ export class RoomStore {
     const descriptor = parseServerDescriptor(serverUrl);
 
     if (descriptor.kind === "http") {
-      if (this.serverAllowlist.length === 0) {
+      if (this.serverAllowlist.length > 0) {
+        const allowedByPrefix = this.serverAllowlist.some((prefix) =>
+          descriptor.url.startsWith(prefix),
+        );
+
+        if (!allowedByPrefix) {
+          throw new HttpError(
+            403,
+            "SERVER_NOT_ALLOWLISTED",
+            `Server URL is not allowlisted: ${descriptor.url}`,
+          );
+        }
         return;
       }
 
-      const allowed = this.serverAllowlist.some((prefix) =>
-        descriptor.url.startsWith(prefix),
-      );
+      const parsed = new URL(descriptor.url);
+      if (isLoopbackHost(parsed.hostname)) {
+        return;
+      }
 
-      if (!allowed) {
+      if (!this.allowRemoteHttpServers) {
         throw new HttpError(
           403,
           "SERVER_NOT_ALLOWLISTED",
-          `Server URL is not allowlisted: ${descriptor.url}`,
+          `Remote HTTP server blocked by policy: ${descriptor.url}`,
+          {
+            hint: "Set ROOMD_ALLOW_REMOTE_HTTP_SERVERS=true and configure ROOMD_REMOTE_HTTP_ORIGIN_ALLOWLIST.",
+          },
         );
       }
 
+      if (this.remoteHttpOriginAllowlist.length === 0) {
+        throw new HttpError(
+          403,
+          "SERVER_NOT_ALLOWLISTED",
+          `Remote HTTP server origin is not allowlisted: ${parsed.origin}`,
+          {
+            hint: "Set ROOMD_REMOTE_HTTP_ORIGIN_ALLOWLIST to explicit allowed origins (comma-separated, or *).",
+          },
+        );
+      }
+
+      const allowedOrigin =
+        this.remoteHttpOriginAllowlist.includes("*") ||
+        this.remoteHttpOriginAllowlist.includes(parsed.origin);
+
+      if (!allowedOrigin) {
+        throw new HttpError(
+          403,
+          "SERVER_NOT_ALLOWLISTED",
+          `Remote HTTP server origin is not allowlisted: ${parsed.origin}`,
+          {
+            details: {
+              origin: parsed.origin,
+              configuredOrigins: [...this.remoteHttpOriginAllowlist],
+            },
+          },
+        );
+      }
       return;
     }
 
@@ -1214,6 +1381,15 @@ function clamp(value: number, min: number, max: number): number {
     return max;
   }
   return value;
+}
+
+function isLoopbackHost(hostname: string): boolean {
+  const normalized = hostname.trim().toLowerCase();
+  return (
+    normalized === "localhost" ||
+    normalized === "127.0.0.1" ||
+    normalized === "::1"
+  );
 }
 
 function sameContainer(left: GridContainer, right: GridContainer): boolean {
@@ -1389,6 +1565,9 @@ function cloneNegotiatedSession(session: NegotiatedSession): NegotiatedSession {
     ...session,
     capabilities: cloneUnknown(session.capabilities),
     extensions: cloneUnknown(session.extensions),
+    ...(session.clientCapabilities
+      ? { clientCapabilities: cloneUnknown(session.clientCapabilities) }
+      : {}),
   };
 }
 
