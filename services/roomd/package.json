@@ -8,7 +8,10 @@
     "start": "tsx src/server.ts",
     "dev": "tsx --watch src/server.ts",
     "cli": "go run ../../tools/roomctl/cmd/roomctl",
-    "test": "vitest run"
+    "test": "vitest run",
+    "conformance:client:run": "tsx src/conformance/client.ts",
+    "conformance:run": "tsx src/conformance/run.ts",
+    "conformance:check": "tsx src/conformance/check-threshold.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/ext-apps": "^1.0.0",
