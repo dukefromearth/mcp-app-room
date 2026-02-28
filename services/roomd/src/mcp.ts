@@ -6,8 +6,16 @@ import {
 } from "@modelcontextprotocol/ext-apps/app-bridge";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
+import {
+  StdioClientTransport,
+  type StdioServerParameters,
+} from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Resource } from "@modelcontextprotocol/sdk/types.js";
+import {
+  normalizeServerTarget,
+  parseServerDescriptor,
+} from "./server-target";
 import type {
   CompletionCompleteParams,
   McpSession,
@@ -15,6 +23,7 @@ import type {
   NegotiatedSession,
   PromptGetParams,
   ResourceSubscriptionParams,
+  ServerDescriptor,
   SessionTransportKind,
   ToolUiResource,
 } from "./types";
@@ -37,27 +46,118 @@ interface ConnectedClient {
   protocolVersion?: string;
 }
 
-async function connectWithFallback(serverUrl: string): Promise<ConnectedClient> {
-  const url = new URL(serverUrl);
+interface TransportAdapter {
+  readonly kind: SessionTransportKind;
+  canHandle(server: ServerDescriptor): boolean;
+  connect(server: ServerDescriptor): Promise<ConnectedClient>;
+}
 
-  try {
-    const transport = new StreamableHTTPClientTransport(url);
+interface RealMcpSessionFactoryOptions {
+  stdioCommandAllowlist?: string[];
+}
+
+class HttpTransportAdapter implements TransportAdapter {
+  readonly kind: SessionTransportKind = "streamable-http";
+
+  canHandle(server: ServerDescriptor): boolean {
+    return server.kind === "http";
+  }
+
+  async connect(server: ServerDescriptor): Promise<ConnectedClient> {
+    if (server.kind !== "http") {
+      throw new Error("HTTP adapter only supports HTTP descriptors");
+    }
+
+    const url = new URL(server.url);
+    const streamableError: unknown[] = [];
+
+    try {
+      const transport = new StreamableHTTPClientTransport(url);
+      const client = new Client(IMPLEMENTATION);
+      await client.connect(transport);
+      return {
+        client,
+        transport: "streamable-http",
+        protocolVersion: readProtocolVersion(transport),
+      };
+    } catch (error) {
+      streamableError.push(error);
+    }
+
+    try {
+      const transport = new SSEClientTransport(url);
+      const client = new Client(IMPLEMENTATION);
+      await client.connect(transport);
+      return {
+        client,
+        transport: "legacy-sse",
+        protocolVersion: readProtocolVersion(transport),
+      };
+    } catch (error) {
+      streamableError.push(error);
+    }
+
+    const causes = streamableError
+      .map((error) => (error instanceof Error ? error.message : String(error)))
+      .join("; ");
+    throw new Error(
+      `Unable to establish HTTP/SSE MCP transport for ${server.url}: ${causes}`,
+    );
+  }
+}
+
+class StdioTransportAdapter implements TransportAdapter {
+  readonly kind: SessionTransportKind = "stdio";
+
+  constructor(private readonly commandAllowlist: string[]) {}
+
+  canHandle(server: ServerDescriptor): boolean {
+    return server.kind === "stdio";
+  }
+
+  async connect(server: ServerDescriptor): Promise<ConnectedClient> {
+    if (server.kind !== "stdio") {
+      throw new Error("Stdio adapter only supports stdio descriptors");
+    }
+
+    this.assertCommandAllowed(server.command);
+
+    const parameters: StdioServerParameters = {
+      command: server.command,
+      args: [...server.args],
+      ...(server.cwd ? { cwd: server.cwd } : {}),
+      ...(server.env ? { env: { ...server.env } } : {}),
+    };
+
+    const transport = new StdioClientTransport(parameters);
     const client = new Client(IMPLEMENTATION);
     await client.connect(transport);
+
     return {
       client,
-      transport: "streamable-http",
+      transport: "stdio",
       protocolVersion: readProtocolVersion(transport),
     };
-  } catch {
-    const transport = new SSEClientTransport(url);
-    const client = new Client(IMPLEMENTATION);
-    await client.connect(transport);
-    return {
-      client,
-      transport: "legacy-sse",
-      protocolVersion: readProtocolVersion(transport),
-    };
+  }
+
+  private assertCommandAllowed(command: string): void {
+    if (this.commandAllowlist.includes("*")) {
+      return;
+    }
+
+    if (this.commandAllowlist.length === 0) {
+      throw new Error(
+        "stdio transport is disabled: set ROOMD_STDIO_COMMAND_ALLOWLIST to permit commands",
+      );
+    }
+
+    if (this.commandAllowlist.includes(command)) {
+      return;
+    }
+
+    throw new Error(
+      `stdio command is not allowlisted: ${command} (ROOMD_STDIO_COMMAND_ALLOWLIST=${this.commandAllowlist.join(",")})`,
+    );
   }
 }
 
@@ -75,6 +175,12 @@ class RealMcpSession implements McpSession {
       capabilities: { ...this.negotiatedSession.capabilities },
       extensions: { ...this.negotiatedSession.extensions },
     };
+  }
+
+  async close(): Promise<void> {
+    // GOTCHA: stdio subprocess shutdown fallback (SIGTERM/SIGKILL) is delegated
+    // to SDK transport close implementation; this must always run on release.
+    await this.client.close();
   }
 
   async callTool(toolName: string, input: Record<string, unknown>): Promise<unknown> {
@@ -120,7 +226,7 @@ class RealMcpSession implements McpSession {
 
     const contentMeta = parseUiResourceMeta(
       readUiResourceMetaCandidate(content as ResourceMetaContainer),
-      "content-level"
+      "content-level",
     );
     const listingMeta = await this.readResourceListingMeta(uri);
     const uiMeta = contentMeta ?? listingMeta;
@@ -166,7 +272,7 @@ class RealMcpSession implements McpSession {
     const listingResource = this.resourceCache.get(uri) as ResourceMetaContainer | undefined;
     return parseUiResourceMeta(
       readUiResourceMetaCandidate(listingResource),
-      "listing-level"
+      "listing-level",
     );
   }
 }
@@ -176,7 +282,9 @@ class RealMcpSession implements McpSession {
  *
  * Supports both `_meta` (spec-compliant) and `meta` (legacy Python SDK quirk).
  */
-function readUiResourceMetaCandidate(resource: ResourceMetaContainer | undefined): unknown {
+function readUiResourceMetaCandidate(
+  resource: ResourceMetaContainer | undefined,
+): unknown {
   return resource?._meta?.ui ?? resource?.meta?.ui;
 }
 
@@ -186,7 +294,10 @@ function readUiResourceMetaCandidate(resource: ResourceMetaContainer | undefined
  * Invalid metadata is ignored so session behavior remains stable even when a
  * server sends malformed optional metadata.
  */
-function parseUiResourceMeta(rawMeta: unknown, level: "content-level" | "listing-level"): UiResourceMeta | undefined {
+function parseUiResourceMeta(
+  rawMeta: unknown,
+  level: "content-level" | "listing-level",
+): UiResourceMeta | undefined {
   if (rawMeta === undefined) {
     return undefined;
   }
@@ -202,30 +313,73 @@ function parseUiResourceMeta(rawMeta: unknown, level: "content-level" | "listing
 
 export class RealMcpSessionFactory implements McpSessionFactory {
   private readonly sessions: Map<string, Promise<McpSession>> = new Map();
+  private readonly adapters: TransportAdapter[];
+
+  constructor(options: RealMcpSessionFactoryOptions = {}) {
+    this.adapters = [
+      new StdioTransportAdapter(options.stdioCommandAllowlist ?? []),
+      new HttpTransportAdapter(),
+    ];
+  }
 
   async getSession(roomId: string, serverUrl: string): Promise<McpSession> {
-    const key = `${roomId}::${serverUrl}`;
+    const normalizedServer = normalizeServerTarget(serverUrl);
+    const key = `${roomId}::${normalizedServer}`;
 
     if (!this.sessions.has(key)) {
+      const sessionPromise = (async () => {
+        const descriptor = parseServerDescriptor(normalizedServer);
+        const adapter = this.adapters.find((candidate) =>
+          candidate.canHandle(descriptor),
+        );
+        if (!adapter) {
+          throw new Error(`No transport adapter available for server: ${normalizedServer}`);
+        }
+
+        const connected = await adapter.connect(descriptor);
+        return new RealMcpSession(
+          connected.client,
+          buildNegotiatedSession(
+            connected.client,
+            connected.transport,
+            connected.protocolVersion,
+          ),
+        );
+      })();
+
       this.sessions.set(
         key,
-        (async () => {
-          const connected = await connectWithFallback(serverUrl);
-          return new RealMcpSession(
-            connected.client,
-            buildNegotiatedSession(
-              connected.client,
-              connected.transport,
-              connected.protocolVersion,
-            ),
-          );
-        })(),
+        sessionPromise.catch((error) => {
+          this.sessions.delete(key);
+          throw error;
+        }),
       );
     }
 
-    // TODO: If first connect fails, we cache a rejected promise and future retries
-    // fail until process restart. Evict failed entries to allow recovery.
     return this.sessions.get(key)!;
+  }
+
+  async releaseSession(roomId: string, serverUrl: string): Promise<void> {
+    let normalizedServer: string;
+    try {
+      normalizedServer = normalizeServerTarget(serverUrl);
+    } catch {
+      return;
+    }
+
+    const key = `${roomId}::${normalizedServer}`;
+    const pending = this.sessions.get(key);
+    if (!pending) {
+      return;
+    }
+
+    this.sessions.delete(key);
+    try {
+      const session = await pending;
+      await session.close();
+    } catch {
+      // Ignore close/retrieval failures during release path.
+    }
   }
 }
 

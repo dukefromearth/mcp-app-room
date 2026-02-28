@@ -2,6 +2,7 @@ import type { CommandEnvelope } from "./types";
 import { stableStringify } from "./hash";
 import { ensureServerCapability } from "./capabilities";
 import { HttpError } from "./errors";
+import { normalizeServerTarget, parseServerDescriptor } from "./server-target";
 import type {
   CompletionCompleteParams,
   CommandSuccessResponse,
@@ -45,6 +46,7 @@ interface RoomStoreOptions {
   invocationHistoryLimit?: number;
   idempotencyKeyLimit?: number;
   serverAllowlist?: string[];
+  stdioCommandAllowlist?: string[];
 }
 
 interface CommandExecutionResult {
@@ -95,6 +97,7 @@ export class RoomStore {
   private readonly invocationHistoryLimit: number;
   private readonly idempotencyKeyLimit: number;
   private readonly serverAllowlist: string[];
+  private readonly stdioCommandAllowlist: string[];
 
   constructor(
     private readonly sessionFactory: McpSessionFactory,
@@ -104,6 +107,7 @@ export class RoomStore {
     this.invocationHistoryLimit = options.invocationHistoryLimit ?? 200;
     this.idempotencyKeyLimit = options.idempotencyKeyLimit ?? 1000;
     this.serverAllowlist = options.serverAllowlist ?? [];
+    this.stdioCommandAllowlist = options.stdioCommandAllowlist ?? [];
   }
 
   createRoom(roomId: string): RoomState {
@@ -249,8 +253,16 @@ export class RoomStore {
   }
 
   async inspectServer(serverUrl: string): Promise<ServerInspection> {
-    this.assertServerAllowed(serverUrl);
-    return this.inspectServerWithSession(INSPECTION_ROOM_ID, serverUrl);
+    const normalizedServer = normalizeServerTarget(serverUrl);
+    this.assertServerAllowed(normalizedServer);
+    try {
+      return await this.inspectServerWithSession(
+        INSPECTION_ROOM_ID,
+        normalizedServer,
+      );
+    } finally {
+      await this.sessionFactory.releaseSession(INSPECTION_ROOM_ID, normalizedServer);
+    }
   }
 
   async getInstanceCapabilities(
@@ -584,13 +596,14 @@ export class RoomStore {
       );
     }
 
+    const normalizedServer = normalizeServerTarget(command.server);
     const inspection = await this.inspectServerWithSession(
       room.roomId,
-      command.server,
+      normalizedServer,
     );
-    const session = await this.getSession(room.roomId, command.server);
+    const session = await this.getSession(room.roomId, normalizedServer);
     const negotiated = cloneNegotiatedSession(session.getNegotiatedSession());
-    room.sessions.set(command.server, cloneNegotiatedSession(negotiated));
+    room.sessions.set(normalizedServer, cloneNegotiatedSession(negotiated));
     const selectedUiResourceUri = this.selectMountUiResourceUri(
       command,
       inspection,
@@ -598,7 +611,7 @@ export class RoomStore {
 
     const mount: RoomMount = {
       instanceId: command.instanceId,
-      server: command.server,
+      server: normalizedServer,
       uiResourceUri: selectedUiResourceUri,
       session: negotiated,
       visible: true,
@@ -654,10 +667,10 @@ export class RoomStore {
     };
   }
 
-  private handleUnmount(
+  private async handleUnmount(
     room: RoomRuntime,
     instanceId: string,
-  ): CommandExecutionResult {
+  ): Promise<CommandExecutionResult> {
     const mount = this.requireMount(room, instanceId);
     const mountedServer = mount.server;
 
@@ -669,6 +682,7 @@ export class RoomStore {
     );
     if (!hasRemainingForServer) {
       room.sessions.delete(mountedServer);
+      await this.sessionFactory.releaseSession(room.roomId, mountedServer);
     }
 
     if (room.selectedInstanceId === instanceId) {
@@ -1150,19 +1164,43 @@ export class RoomStore {
   }
 
   private assertServerAllowed(serverUrl: string): void {
-    if (this.serverAllowlist.length === 0) {
+    const descriptor = parseServerDescriptor(serverUrl);
+
+    if (descriptor.kind === "http") {
+      if (this.serverAllowlist.length === 0) {
+        return;
+      }
+
+      const allowed = this.serverAllowlist.some((prefix) =>
+        descriptor.url.startsWith(prefix),
+      );
+
+      if (!allowed) {
+        throw new HttpError(
+          403,
+          "SERVER_NOT_ALLOWLISTED",
+          `Server URL is not allowlisted: ${descriptor.url}`,
+        );
+      }
+
       return;
     }
 
-    const allowed = this.serverAllowlist.some((prefix) =>
-      serverUrl.startsWith(prefix),
-    );
+    if (this.stdioCommandAllowlist.includes("*")) {
+      return;
+    }
 
-    if (!allowed) {
+    if (
+      this.stdioCommandAllowlist.length === 0 ||
+      !this.stdioCommandAllowlist.includes(descriptor.command)
+    ) {
       throw new HttpError(
         403,
         "SERVER_NOT_ALLOWLISTED",
-        `Server URL is not allowlisted: ${serverUrl}`,
+        `Stdio command is not allowlisted: ${descriptor.command}`,
+        {
+          hint: "Set ROOMD_STDIO_COMMAND_ALLOWLIST to allowed commands (comma-separated, or *).",
+        },
       );
     }
   }

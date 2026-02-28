@@ -77,6 +77,28 @@ npm run roomd:cli -- mount --room demo --instance inst-1 --server http://localho
 If no UI metadata is available, mount still succeeds as a non-UI instance.
 `GET /rooms/:roomId/instances/:instanceId/ui` then returns `NO_UI_RESOURCE`.
 
+Mount a local stdio MCP server (descriptor form):
+
+```bash
+npm run roomd:cli -- mount \
+  --room demo \
+  --instance inst-stdio \
+  --server "stdio://spawn?command=node&arg=/absolute/path/to/server.mjs&env.NODE_ENV=development" \
+  --container 0,0,6,4
+```
+
+Inspect the same stdio descriptor:
+
+```bash
+npm run roomd:cli -- inspect --server "stdio://spawn?command=node&arg=/absolute/path/to/server.mjs"
+```
+
+For stdio mounts, roomd must allow the executable command:
+
+```bash
+export ROOMD_STDIO_COMMAND_ALLOWLIST=node,npx,/usr/local/bin/node
+```
+
 Capability-gated endpoints return `UNSUPPORTED_CAPABILITY` when the mounted
 server did not negotiate the required primitive. Check first with:
 

@@ -207,7 +207,7 @@ func newInspectCmd(opts *rootOptions) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&server, "server", "", "Upstream MCP server URL")
+	cmd.Flags().StringVar(&server, "server", "", "Upstream MCP server URL or stdio descriptor")
 	_ = cmd.MarkFlagRequired("server")
 	return cmd
 }
@@ -255,7 +255,7 @@ func newMountCmd(opts *rootOptions) *cobra.Command {
 
 	cmd.Flags().StringVar(&roomID, "room", "", "Room ID")
 	cmd.Flags().StringVar(&instanceID, "instance", "", "Mount instance ID")
-	cmd.Flags().StringVar(&server, "server", "", "Upstream MCP server URL")
+	cmd.Flags().StringVar(&server, "server", "", "Upstream MCP server URL or stdio descriptor")
 	cmd.Flags().StringVar(&container, "container", "", "Grid container as x,y,w,h")
 	cmd.Flags().StringVar(&uiResourceURI, "ui-resource-uri", "", "Selected UI resource URI")
 	cmd.Flags().StringVar(&idempotencyKey, "idempotency-key", "", "Reuse key to make retries idempotent")

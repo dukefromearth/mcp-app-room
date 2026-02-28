@@ -1,6 +1,21 @@
 export type UiResourceCsp = unknown;
 export type UiResourcePermissions = unknown;
-export type SessionTransportKind = "streamable-http" | "legacy-sse" | "unknown";
+export type SessionTransportKind = "streamable-http" | "legacy-sse" | "stdio" | "unknown";
+
+export interface HttpServerDescriptor {
+  kind: "http";
+  url: string;
+}
+
+export interface StdioServerDescriptor {
+  kind: "stdio";
+  command: string;
+  args: string[];
+  env?: Record<string, string>;
+  cwd?: string;
+}
+
+export type ServerDescriptor = HttpServerDescriptor | StdioServerDescriptor;
 
 export interface NegotiatedSession {
   protocolVersion?: string;
@@ -226,6 +241,7 @@ export interface ServerInspection {
 
 export interface McpSession {
   getNegotiatedSession(): NegotiatedSession;
+  close(): Promise<void>;
   listTools(params?: { cursor?: string }): Promise<unknown>;
   callTool(toolName: string, input: Record<string, unknown>): Promise<unknown>;
   getPrompt(params: PromptGetParams): Promise<unknown>;
@@ -242,6 +258,7 @@ export interface McpSession {
 
 export interface McpSessionFactory {
   getSession(roomId: string, serverUrl: string): Promise<McpSession>;
+  releaseSession(roomId: string, serverUrl: string): Promise<void>;
 }
 
 export type CommandSuccessResponse = {

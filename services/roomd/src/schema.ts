@@ -1,4 +1,12 @@
 import { z } from "zod";
+import { isValidServerTarget } from "./server-target";
+
+const serverTargetSchema = z
+  .string()
+  .min(1)
+  .refine((value) => isValidServerTarget(value), {
+    message: "server must be a valid HTTP URL or stdio descriptor",
+  });
 
 export const gridContainerSchema = z.object({
   x: z.number().int().min(0),
@@ -10,7 +18,7 @@ export const gridContainerSchema = z.object({
 const mountCommandSchema = z.object({
   type: z.literal("mount"),
   instanceId: z.string().min(1),
-  server: z.string().url(),
+  server: serverTargetSchema,
   container: gridContainerSchema,
   uiResourceUri: z.string().min(1).optional(),
 });
@@ -140,7 +148,7 @@ export const createRoomSchema = z.object({
 });
 
 export const inspectServerSchema = z.object({
-  server: z.string().url(),
+  server: serverTargetSchema,
 });
 
 export const sinceRevisionSchema = z
