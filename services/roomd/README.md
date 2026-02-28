@@ -4,6 +4,7 @@
 
 ## Endpoints
 
+- `POST /inspect/server`
 - `POST /rooms`
 - `GET /rooms/:roomId/state`
 - `GET /rooms/:roomId/events`
@@ -19,6 +20,11 @@ Auxiliary host endpoints:
 - `POST /rooms/:roomId/instances/:instanceId/resources/read`
 - `POST /rooms/:roomId/instances/:instanceId/resources/templates/list`
 - `POST /rooms/:roomId/instances/:instanceId/prompts/list`
+
+`mount` is app/server-level (not tool-level). `roomd` inspects the upstream MCP
+server, records tool catalog metadata, and selects a UI resource URI when one
+is available. Non-UI mounts are valid and return `NO_UI_RESOURCE` on the `/ui`
+endpoint.
 
 ## Run
 

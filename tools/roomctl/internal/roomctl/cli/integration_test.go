@@ -61,12 +61,11 @@ func TestMountCommandIntegration(t *testing.T) {
 	var gotBody struct {
 		IdempotencyKey string `json:"idempotencyKey"`
 		Command        struct {
-			Type       string         `json:"type"`
-			InstanceID string         `json:"instanceId"`
-			Server     string         `json:"server"`
-			ToolName   string         `json:"toolName"`
-			Container  map[string]int `json:"container"`
-			Initial    map[string]any `json:"initialInput"`
+			Type          string         `json:"type"`
+			InstanceID    string         `json:"instanceId"`
+			Server        string         `json:"server"`
+			Container     map[string]int `json:"container"`
+			UIResourceURI string         `json:"uiResourceUri"`
 		} `json:"command"`
 	}
 
@@ -86,9 +85,8 @@ func TestMountCommandIntegration(t *testing.T) {
 		"--room", "demo",
 		"--instance", "inst-1",
 		"--server", "http://localhost:3001/mcp",
-		"--tool", "get-time",
 		"--container", "0,0,4,4",
-		"--input", `{"tz":"UTC"}`,
+		"--ui-resource-uri", "ui://markdown/mcp-app.html",
 		"--idempotency-key", "idem-1",
 	)
 
@@ -113,14 +111,56 @@ func TestMountCommandIntegration(t *testing.T) {
 	if gotBody.Command.Container["x"] != 0 || gotBody.Command.Container["y"] != 0 || gotBody.Command.Container["w"] != 4 || gotBody.Command.Container["h"] != 4 {
 		t.Fatalf("container=%v want x=0 y=0 w=4 h=4", gotBody.Command.Container)
 	}
-	if gotBody.Command.Initial["tz"] != "UTC" {
-		t.Fatalf("initialInput=%v want tz=UTC", gotBody.Command.Initial)
+	if gotBody.Command.UIResourceURI != "ui://markdown/mcp-app.html" {
+		t.Fatalf("uiResourceUri=%q want=ui://markdown/mcp-app.html", gotBody.Command.UIResourceURI)
 	}
 	if env.Status != http.StatusOK {
 		t.Fatalf("status=%d want=%d", env.Status, http.StatusOK)
 	}
 }
 
+func TestInspectCommandIntegration(t *testing.T) {
+	t.Parallel()
+
+	var gotMethod string
+	var gotPath string
+	var decodeErr error
+	var gotBody struct {
+		Server string `json:"server"`
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		decodeErr = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"server":"http://localhost:3114/mcp","tools":[{"name":"read"}],"uiCandidates":["ui://markdown/mcp-app.html"],"autoMountable":true,"recommendedUiResourceUri":"ui://markdown/mcp-app.html","exampleCommands":["roomctl mount --room <room-id> --instance <instance-id> --server http://localhost:3114/mcp --container 0,0,4,12"]}`))
+	}))
+	defer server.Close()
+
+	env := runCommand(
+		t,
+		server.URL,
+		"inspect",
+		"--server", "http://localhost:3114/mcp",
+	)
+
+	if gotMethod != http.MethodPost {
+		t.Fatalf("method=%s want=%s", gotMethod, http.MethodPost)
+	}
+	if gotPath != "/inspect/server" {
+		t.Fatalf("path=%s want=/inspect/server", gotPath)
+	}
+	if decodeErr != nil {
+		t.Fatalf("decode request body: %v", decodeErr)
+	}
+	if gotBody.Server != "http://localhost:3114/mcp" {
+		t.Fatalf("server=%q want=http://localhost:3114/mcp", gotBody.Server)
+	}
+	if env.Status != http.StatusOK {
+		t.Fatalf("status=%d want=%d", env.Status, http.StatusOK)
+	}
+}
 func TestReorderCommandIntegration(t *testing.T) {
 	t.Parallel()
 

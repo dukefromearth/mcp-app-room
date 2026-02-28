@@ -8,13 +8,21 @@ export interface GridContainer {
   h: number;
 }
 
+export interface RoomMountTool {
+  name: string;
+  title?: string;
+  description?: string;
+  inputSchema: unknown;
+  uiResourceUri?: string;
+}
+
 export interface RoomMount {
   instanceId: string;
   server: string;
-  toolName: string;
   uiResourceUri?: string;
   visible: boolean;
   container: GridContainer;
+  tools: RoomMountTool[];
 }
 
 export type LayoutAdapterName = "grid12";
@@ -103,7 +111,6 @@ export type RoomEvent =
         | "call"
         | "call-result"
         | "call-failed"
-        | "resolve-ui-uri"
         | "select"
         | "reorder"
         | "layout";
@@ -121,9 +128,8 @@ export type RoomCommand =
       type: "mount";
       instanceId: string;
       server: string;
-      toolName: string;
       container: GridContainer;
-      initialInput?: Record<string, unknown>;
+      uiResourceUri?: string;
     }
   | {
       type: "hide";
@@ -136,11 +142,6 @@ export type RoomCommand =
   | {
       type: "unmount";
       instanceId: string;
-    }
-  | {
-      type: "call";
-      instanceId: string;
-      input?: Record<string, unknown>;
     }
   | {
       type: "select";
@@ -168,13 +169,16 @@ export interface ToolUiResource {
   permissions?: UiResourcePermissions;
 }
 
-export interface SessionToolInfo {
-  tool: unknown;
-  uiResourceUri?: string;
+export interface ServerInspection {
+  server: string;
+  tools: RoomMountTool[];
+  uiCandidates: string[];
+  autoMountable: boolean;
+  recommendedUiResourceUri?: string;
+  exampleCommands: string[];
 }
 
 export interface McpSession {
-  listToolInfo(toolName: string): Promise<SessionToolInfo>;
   listTools(params?: { cursor?: string }): Promise<unknown>;
   callTool(toolName: string, input: Record<string, unknown>): Promise<unknown>;
   readUiResource(uri: string): Promise<ToolUiResource>;
@@ -189,19 +193,11 @@ export interface McpSessionFactory {
   getSession(roomId: string, serverUrl: string): Promise<McpSession>;
 }
 
-export type CommandSuccessResponse =
-  | {
-      ok: true;
-      revision: number;
-      state: RoomState;
-    }
-  | {
-      ok: true;
-      accepted: true;
-      invocationId: string;
-      revision: number;
-      state: RoomState;
-    };
+export type CommandSuccessResponse = {
+  ok: true;
+  revision: number;
+  state: RoomState;
+};
 
 export interface IdempotencyRecord {
   commandHash: string;

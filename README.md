@@ -49,9 +49,10 @@ Quick guide: [`docs/cli/CLI_QUICK_START.md`](docs/cli/CLI_QUICK_START.md)
 
 ```bash
 npm run roomd:cli -- create --room demo
-npm run roomd:cli -- mount --room demo --instance inst-1 --server http://localhost:3001/mcp --tool get-time --container 0,0,4,4 --input '{}'
+npm run roomd:cli -- inspect --server http://localhost:3001/mcp
+npm run roomd:cli -- mount --room demo --instance inst-1 --server http://localhost:3001/mcp --container 0,0,4,4
 npm run roomd:cli -- tools-list --room demo --instance inst-1
-npm run roomd:cli -- call --room demo --instance inst-1 --input '{}'
+npm run roomd:cli -- tool-call --room demo --instance inst-1 --name get-time --arguments '{}'
 npm run roomd:cli -- select --room demo --instance inst-1
 npm run roomd:cli -- reorder --room demo --order inst-2,inst-1
 npm run roomd:cli -- layout --room demo --ops '[{"op":"swap","first":"inst-1","second":"inst-2"}]'

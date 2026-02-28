@@ -51,7 +51,7 @@ Responsibilities:
 Responsibilities:
 
 1. Render room state as container wrappers on a canvas.
-2. For each mounted tool, create/update an `AppInstance`.
+2. For each mounted app/server instance, create/update an `AppInstance`.
 3. Keep current sandbox boundary model (outer sandbox proxy + inner iframe).
 4. React to room events; never mutate room state locally without command round-trip.
 
@@ -61,12 +61,31 @@ CLI talks only to `roomd` command endpoint.
 
 Example operations:
 
-1. `mount` tool into a target container slot.
-2. `hide` / `show`.
-3. `unmount`.
-4. `call` tool for an instance.
+1. `inspect` server UI/tool catalog before mount.
+2. `mount` app/server instance into a target container slot.
+3. `hide` / `show`.
+4. `unmount`.
+5. `tool-call` for explicit named tool invocation.
 
 ## API Contract (Minimal)
+
+## Server Inspection
+
+`POST /inspect/server`
+
+Request:
+
+```json
+{
+  "server": "http://localhost:3001/mcp"
+}
+```
+
+Response includes:
+- `tools[]` summaries (name/title/description/inputSchema + optional per-tool UI URI).
+- `uiCandidates[]` deduped mountable UI URIs.
+- `autoMountable` and optional `recommendedUiResourceUri`.
+- `exampleCommands[]` with concrete `roomctl mount ...` follow-up commands.
 
 ## Command Endpoint
 
@@ -81,9 +100,8 @@ Request:
     "type": "mount",
     "instanceId": "inst-debug-1",
     "server": "http://localhost:3001/mcp",
-    "toolName": "debug-tool",
-    "container": { "x": 0, "y": 0, "w": 6, "h": 4 },
-    "initialInput": {}
+    "uiResourceUri": "ui://debug-tool/mcp-app.html",
+    "container": { "x": 0, "y": 0, "w": 6, "h": 4 }
   }
 }
 ```
@@ -124,14 +142,25 @@ Response:
     {
       "instanceId": "inst-debug-1",
       "server": "http://localhost:3001/mcp",
-      "toolName": "debug-tool",
       "uiResourceUri": "ui://debug-tool/mcp-app.html",
       "visible": true,
-      "container": { "x": 0, "y": 0, "w": 6, "h": 4 }
+      "container": { "x": 0, "y": 0, "w": 6, "h": 4 },
+      "tools": [
+        {
+          "name": "debug-tool",
+          "title": "Debug",
+          "description": "Debug helper",
+          "inputSchema": { "type": "object", "properties": {} },
+          "uiResourceUri": "ui://debug-tool/mcp-app.html"
+        }
+      ]
     }
   ]
 }
 ```
+
+`mount.uiResourceUri` is optional; missing UI means the mount is tool-usable but
+renders in non-UI placeholder mode.
 
 ## Security Requirements
 
@@ -146,9 +175,9 @@ Response:
 1. `mount` command stored in room state.
 2. Browser receives new state (SSE).
 3. Browser creates `AppInstance` for mount.
-4. `AppInstance` resolves tool + `uiResourceUri`.
+4. If `uiResourceUri` exists, `AppInstance` reads the selected UI resource.
 5. Browser reads resource and sends HTML to sandbox proxy (`sendSandboxResourceReady`).
-6. Tool input/result channel runs over app bridge.
+6. Without `uiResourceUri`, tile stays in non-UI mode and tool operations remain available.
 
 ## Reliability Rules
 

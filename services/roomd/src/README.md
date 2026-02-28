@@ -15,8 +15,12 @@ Runtime and domain modules for the room control plane.
 - `mcp.ts`: external MCP integration boundary.
 
 `server.ts` exposes mounted-instance MCP passthrough routes for tools/resources/prompts,
-including `tools/list` and `tools/call`.
+plus server inspection (`POST /inspect/server`) for pre-mount discovery.
 
 `tools/call` is stateful at the room layer: direct calls are mirrored into
 `RoomState.invocations` and emit `state-updated` events (`call`, then
 `call-result` or `call-failed`) so room clients update without manual refresh.
+
+Mount commands are app/server-level and persist:
+- optional `uiResourceUri` at the mount level.
+- full discovered `tools[]` catalog (name, schema, metadata) at the mount level.

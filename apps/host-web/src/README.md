@@ -13,3 +13,7 @@ UI shell for the room host application.
 - `index.tsx`: app entrypoint.
 - `room-canvas.tsx`: room-focused rendering and interactions.
 - `implementation.ts`: bridge composition boundary.
+
+`room-canvas.tsx` renders mounted app/server instances and must not assume a
+required `mount.toolName`; mount identity comes from `instanceId` and
+optional `uiResourceUri`.

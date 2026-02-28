@@ -17,4 +17,6 @@ Canonical CLI docs live at:
 
 ```bash
 npm run roomd:cli -- --help
+npm run roomd:cli -- inspect --server http://localhost:3114/mcp
+npm run roomd:cli -- mount --room demo --instance inst-1 --server http://localhost:3114/mcp --container 0,0,4,12
 ```

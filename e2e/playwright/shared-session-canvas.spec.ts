@@ -37,6 +37,7 @@ test.afterAll(async () => {
 test("room canvas responds to mount/hide/show/unmount commands", async ({ page }) => {
   const roomId = `room-${Date.now()}-a`;
   const serverUrl = await getAnyServerUrl();
+  const uiResourceUri = await resolveUiResourceUri(serverUrl);
 
   await page.goto(`/?mode=room&theme=hide&roomd=${encodeURIComponent(ROOMD_BASE_URL)}&room=${encodeURIComponent(roomId)}`);
   await expect(page.locator('[data-testid="room-canvas"]')).toBeVisible();
@@ -45,9 +46,8 @@ test("room canvas responds to mount/hide/show/unmount commands", async ({ page }
     type: "mount",
     instanceId: "inst-1",
     server: serverUrl,
-    toolName: "get-time",
     container: { x: 0, y: 0, w: 6, h: 4 },
-    initialInput: {},
+    ...(uiResourceUri ? { uiResourceUri } : {}),
   });
 
   const tile = page.locator('[data-instance-id="inst-1"]');
@@ -75,6 +75,7 @@ test("room canvas responds to mount/hide/show/unmount commands", async ({ page }
 test("idempotency, reconnect, and replay reset behavior", async ({ page }) => {
   const roomId = `room-${Date.now()}-b`;
   const serverUrl = await getAnyServerUrl();
+  const uiResourceUri = await resolveUiResourceUri(serverUrl);
 
   await createRoom(roomId);
 
@@ -82,8 +83,8 @@ test("idempotency, reconnect, and replay reset behavior", async ({ page }) => {
     type: "mount",
     instanceId: "inst-1",
     server: serverUrl,
-    toolName: "get-time",
     container: { x: 0, y: 0, w: 6, h: 4 },
+    ...(uiResourceUri ? { uiResourceUri } : {}),
   };
 
   const first = await sendCommand(roomId, "idem-1", mountPayload);
@@ -167,6 +168,31 @@ async function createRoom(roomId: string): Promise<void> {
   if (response.status !== 201 && response.status !== 409) {
     throw new Error(`Failed to create room: ${response.status}`);
   }
+}
+
+async function resolveUiResourceUri(serverUrl: string): Promise<string | undefined> {
+  const response = await fetch(`${ROOMD_BASE_URL}/inspect/server`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ server: serverUrl }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to inspect server: ${response.status}`);
+  }
+
+  const body = (await response.json()) as {
+    uiCandidates?: string[];
+    recommendedUiResourceUri?: string;
+  };
+
+  if (body.recommendedUiResourceUri) {
+    return body.recommendedUiResourceUri;
+  }
+
+  return body.uiCandidates?.[0];
 }
 
 async function sendCommand(

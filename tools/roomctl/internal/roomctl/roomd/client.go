@@ -66,6 +66,13 @@ func (c *Client) Command(ctx context.Context, roomID string, idempotencyKey stri
 	return c.do(ctx, http.MethodPost, "/rooms/"+url.PathEscape(roomID)+"/commands", payload)
 }
 
+func (c *Client) InspectServer(ctx context.Context, server string) (Envelope, error) {
+	payload := map[string]any{
+		"server": server,
+	}
+	return c.do(ctx, http.MethodPost, "/inspect/server", payload)
+}
+
 func (c *Client) InstanceCapabilities(ctx context.Context, roomID string, instanceID string) (Envelope, error) {
 	endpoint := "/rooms/" + url.PathEscape(roomID) + "/instances/" + url.PathEscape(instanceID) + "/capabilities"
 	return c.do(ctx, http.MethodGet, endpoint, nil)

@@ -61,11 +61,21 @@ Create room:
 npm run roomd:cli -- create --room demo
 ```
 
-Mount first MCP app:
+Inspect and mount first MCP app:
 
 ```bash
-npm run roomd:cli -- mount --room demo --instance inst-1 --server http://localhost:3101/mcp --tool get-time --container 0,0,4,4 --input '{}'
+npm run roomd:cli -- inspect --server http://localhost:3101/mcp
+npm run roomd:cli -- mount --room demo --instance inst-1 --server http://localhost:3101/mcp --container 0,0,4,4
 ```
+
+To force a specific UI resource from inspection results:
+
+```bash
+npm run roomd:cli -- mount --room demo --instance inst-1 --server http://localhost:3101/mcp --container 0,0,4,4 --ui-resource-uri ui://markdown/mcp-app.html
+```
+
+If no UI metadata is available, mount still succeeds as a non-UI instance.
+`GET /rooms/:roomId/instances/:instanceId/ui` then returns `NO_UI_RESOURCE`.
 
 Hide/show:
 
@@ -77,14 +87,14 @@ npm run roomd:cli -- show --room demo --instance inst-1
 Add second app:
 
 ```bash
-npm run roomd:cli -- mount --room demo --instance inst-2 --server http://localhost:3101/mcp --tool get-time --container 4,0,4,4 --input '{}'
+npm run roomd:cli -- mount --room demo --instance inst-2 --server http://localhost:3101/mcp --container 4,0,4,4
 ```
 
 Useful extras:
 
 ```bash
-npm run roomd:cli -- call --room demo --instance inst-1 --input '{}'
 npm run roomd:cli -- tools-list --room demo --instance inst-1
+npm run roomd:cli -- tool-call --room demo --instance inst-1 --name get-time --arguments '{}'
 npm run roomd:cli -- select --room demo --instance inst-2
 npm run roomd:cli -- reorder --room demo --order inst-2,inst-1
 npm run roomd:cli -- layout --room demo --ops '[{"op":"swap","first":"inst-1","second":"inst-2"}]'
@@ -114,7 +124,7 @@ npm run roomd:cli -- state --room demo | jq '.body.state | {roomId, revision, se
 Show only mounts:
 
 ```bash
-npm run roomd:cli -- state --room demo | jq '.body.state.mounts | map({instanceId, visible, toolName, server, container})'
+npm run roomd:cli -- state --room demo | jq '.body.state.mounts | map({instanceId, visible, uiResourceUri, tools: (.tools | length), server, container})'
 ```
 
 Show invocation statuses:
@@ -250,12 +260,13 @@ Do not call `resources-read` until a valid URI has been discovered from
 npm run roomd:cli -- resources-read --room <room-id> --instance <instance-id> --uri <resource-uri> -o json
 ```
 
-### D) Invocations and tool calls are sequential
+### D) Tool calls and invocations are sequential
 
-If you invoke a mounted instance, you create a new invocation record:
+When you call a tool through a mounted instance, room state records a new
+invocation:
 
 ```bash
-npm run roomd:cli -- call --room <room-id> --instance <instance-id> --input '{}' -o json
+npm run roomd:cli -- tool-call --room <room-id> --instance <instance-id> --name <tool-name> --arguments '{"key":"value"}' -o json
 ```
 
 Then re-read state to get the invocation metadata:
@@ -292,5 +303,5 @@ When you know nothing about what is mounted, this order avoids dead ends:
 7. `resource-templates-list`
 8. optional `prompts-list`
 9. `resources-read` for discovered URIs
-10. `call` or `tool-call` only after required identifiers are known
+10. `tool-call` only after required identifiers are known
 11. `state-get state.invocations` to correlate outputs to invocation IDs
