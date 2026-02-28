@@ -44,7 +44,6 @@ mcp-app-room (`@mcp-app-room`) extends (`@modelcontextprotocol/ext-apps`), which
 
 ### Commands
 - `npm run arch` # streams architecture Mermaid graphs to stdout (all by default; `--deps|--types|--callgraph` for one).
-- `npm run arch:gen`  # explicitly regenerates docs/generated/... artifacts when file-based outputs are required.
 - `npm run test:all` # runs all tests, including unit and integration. Use this before pushing to make sure everything is good.
 
 ### Apps-SDK Entry Points

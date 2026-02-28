@@ -8,7 +8,6 @@ This directory contains repository governance and architecture documentation.
 - `cli/CLI_QUICK_START.md`: canonical CLI usage guide.
 - `repository-setup.md`: local anti-pattern guardrails for scalable repository shape.
 - `architecture/README.md`: curated architecture documentation entrypoint.
-- `generated/README.md`: generated architecture artifact contract and regeneration workflow.
 
 ## Update Workflow
 

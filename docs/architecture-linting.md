@@ -6,7 +6,6 @@ Related docs:
 
 - `docs/README.md`
 - `docs/repository-setup.md`
-- `docs/generated/README.md`
 
 Configuration files:
 
@@ -37,9 +36,6 @@ npm run arch:lint          # CI-safe mode (fails only on violations not in known
 npm run arch:lint:strict   # strict mode (all violations)
 npm run arch:baseline      # refresh known-violations baseline
 npm run arch               # print all Mermaid graphs to stdout (deps + types + callgraph)
-npm run arch -- --deps     # print dependency graph only
-npm run arch:gen           # generate full architecture docs in docs/generated/
-npm run arch:check         # fail when generated architecture artifacts drift
 ```
 
 ## CI Mode and Exception Policy

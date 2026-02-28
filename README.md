@@ -24,7 +24,6 @@ e2e/
 - [docs/README.md](docs/README.md)
 - [docs/architecture-linting.md](docs/architecture-linting.md)
 - [docs/repository-setup.md](docs/repository-setup.md)
-- [docs/generated/README.md](docs/generated/README.md)
 
 ## Start
 
@@ -98,13 +97,6 @@ npm run arch                     # deps + types + callgraph (default)
 npm run arch -- --deps           # deps only
 npm run arch -- --types          # types only
 npm run arch -- --callgraph      # callgraph only
-```
-
-File-based artifact regeneration still exists for checked-in docs:
-
-```bash
-npm run arch:gen
-npm run arch:check
 ```
 
 ## Repository Guardrails
