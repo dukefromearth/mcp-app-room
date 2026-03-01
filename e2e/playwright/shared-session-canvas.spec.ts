@@ -1,8 +1,13 @@
 import { test, expect } from "@playwright/test";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import path from "node:path";
 
 const ROOMD_PORT = 8090;
 const ROOMD_BASE_URL = `http://localhost:${ROOMD_PORT}`;
+const STDIO_FIXTURE_SERVER_PATH = path.resolve(
+  process.cwd(),
+  "services/roomd/tests/fixtures/stdio-fixture-server.mjs",
+);
 
 let roomdProcess: ChildProcessWithoutNullStreams;
 
@@ -16,6 +21,7 @@ test.beforeAll(async () => {
         ...process.env,
         ROOMD_PORT: String(ROOMD_PORT),
         ROOMD_EVENT_WINDOW: "2",
+        DANGEROUSLY_ALLOW_STDIO: "true",
       },
       stdio: "pipe",
     },
@@ -128,6 +134,27 @@ test("idempotency, reconnect, and replay reset behavior", async ({ page }) => {
   await expect(tile).toBeHidden({ timeout: 15000 });
 });
 
+test("handles mounts without explicit UI resources", async ({ page }) => {
+  const roomId = `room-${Date.now()}-no-ui`;
+
+  await page.goto(`/?mode=room&theme=hide&debug=1&roomd=${encodeURIComponent(ROOMD_BASE_URL)}&room=${encodeURIComponent(roomId)}`);
+  await expect(page.locator("code", { hasText: "connected" })).toBeVisible();
+
+  const mount = await sendCommand(roomId, "cmd-mount-stdio-no-ui", {
+    type: "mount",
+    instanceId: "inst-stdio",
+    server: buildStdioServerDescriptor(),
+    container: { x: 0, y: 0, w: 6, h: 4 },
+  });
+  expect(mount.status).toBe(200);
+  const mounted = (mount.body.state.mounts as Array<{ instanceId: string; uiResourceUri?: string }>)
+    .find((candidate) => candidate.instanceId === "inst-stdio");
+  expect(mounted?.uiResourceUri).toBeUndefined();
+
+  const tile = page.locator('[data-instance-id="inst-stdio"]');
+  await expect(tile).toBeVisible({ timeout: 15000 });
+});
+
 async function waitForHealth(): Promise<void> {
   const deadline = Date.now() + 20000;
 
@@ -156,6 +183,13 @@ async function getAnyServerUrl(): Promise<string> {
     throw new Error("No MCP servers configured");
   }
   return servers[0];
+}
+
+function buildStdioServerDescriptor(): string {
+  const params = new URLSearchParams();
+  params.set("command", process.execPath);
+  params.append("arg", STDIO_FIXTURE_SERVER_PATH);
+  return `stdio://spawn?${params.toString()}`;
 }
 
 async function createRoom(roomId: string): Promise<void> {
