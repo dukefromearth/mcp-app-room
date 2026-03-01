@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   loadSandboxProxy,
   log,
@@ -28,11 +28,11 @@ export function RoomAppInstance({
 }: RoomAppInstanceProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const appBridgeRef = useRef<HostAppBridge | null>(null);
-  const [bridgeReady, setBridgeReady] = useState(false);
-  const [resource, setResource] = useState<UiResource | null>(null);
+  const themeUnsubscribeRef = useRef<(() => void) | null>(null);
   const sentInputInvocationRef = useRef<string | null>(null);
   const sentResultInvocationRef = useRef<string | null>(null);
-  const themeUnsubscribeRef = useRef<(() => void) | null>(null);
+  const [bridgeReady, setBridgeReady] = useState(false);
+  const [resource, setResource] = useState<UiResource | null>(null);
 
   useEffect(() => {
     let disposed = false;
@@ -42,28 +42,23 @@ export function RoomAppInstance({
         setResource(null);
         return;
       }
-
       const fetched = await roomdClient.fetchUiResource(roomId, mount.instanceId);
       if (disposed) {
         return;
       }
       setResource(fetched);
-
       const iframe = iframeRef.current;
       if (!iframe) {
         return;
       }
-
       const firstLoad = await loadSandboxProxy(iframe, fetched.csp, fetched.permissions);
       if (!firstLoad && appBridgeRef.current) {
         return;
       }
-
       const capabilities = await roomdClient.fetchCapabilities(roomId, mount.instanceId);
       if (disposed) {
         return;
       }
-
       const appBridge = newRoomAppBridge(capabilities);
       themeUnsubscribeRef.current = wireBridgeHandlers({
         appBridge,
@@ -78,7 +73,6 @@ export function RoomAppInstance({
         csp: fetched.csp,
         permissions: fetched.permissions,
       });
-
       appBridgeRef.current = appBridge;
       setBridgeReady(true);
     };
@@ -90,11 +84,12 @@ export function RoomAppInstance({
     return () => {
       disposed = true;
       setBridgeReady(false);
-      if (appBridgeRef.current) {
-        appBridgeRef.current.teardownResource({}).catch((error) => {
+      const appBridge = appBridgeRef.current;
+      if (appBridge) {
+        appBridge.teardownResource({}).catch((error) => {
           log.warn("Teardown failed", error);
         });
-        appBridgeRef.current.close();
+        appBridge.close();
         appBridgeRef.current = null;
       }
       themeUnsubscribeRef.current?.();
@@ -108,31 +103,23 @@ export function RoomAppInstance({
     if (!bridgeReady || !appBridgeRef.current || !invocation) {
       return;
     }
-
+    const appBridge = appBridgeRef.current;
     if (sentInputInvocationRef.current !== invocation.invocationId) {
-      appBridgeRef.current.sendToolInput({ arguments: invocation.input });
+      appBridge.sendToolInput({ arguments: invocation.input });
       sentInputInvocationRef.current = invocation.invocationId;
       sentResultInvocationRef.current = null;
     }
-
-    if (
-      invocation.status === "completed" &&
-      sentResultInvocationRef.current !== invocation.invocationId
-    ) {
-      appBridgeRef.current.sendToolResult(invocation.result as never);
+    const invocationNotSent = sentResultInvocationRef.current !== invocation.invocationId;
+    if (invocation.status === "completed" && invocationNotSent) {
+      appBridge.sendToolResult(invocation.result as never);
       sentResultInvocationRef.current = invocation.invocationId;
     }
-
-    if (
-      invocation.status === "failed" &&
-      sentResultInvocationRef.current !== invocation.invocationId
-    ) {
-      appBridgeRef.current.sendToolCancelled({ reason: invocation.error ?? "Unknown error" });
+    if (invocation.status === "failed" && invocationNotSent) {
+      appBridge.sendToolCancelled({ reason: invocation.error ?? "Unknown error" });
       sentResultInvocationRef.current = invocation.invocationId;
     }
   }, [bridgeReady, invocation]);
-
-  const resourceHint = useMemo(() => resource?.uiResourceUri ?? "", [resource?.uiResourceUri]);
+  const resourceHint = resource?.uiResourceUri;
 
   return (
     <div className={styles.roomAppPanel}>
@@ -143,7 +130,7 @@ export function RoomAppInstance({
       ) : (
         <iframe ref={iframeRef} title={mount.instanceId} data-testid={`instance-${mount.instanceId}`} />
       )}
-      {resourceHint && <div className={styles.roomResourceHint}>{resourceHint}</div>}
+      {resourceHint ? <div className={styles.roomResourceHint}>{resourceHint}</div> : null}
     </div>
   );
 }

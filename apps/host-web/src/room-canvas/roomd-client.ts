@@ -8,115 +8,63 @@ export interface RoomdClient {
   ensureRoom(roomId: string): Promise<void>;
   fetchRoomState(roomId: string): Promise<RoomState>;
   fetchUiResource(roomId: string, instanceId: string): Promise<UiResource>;
-  fetchCapabilities(
-    roomId: string,
-    instanceId: string,
-  ): Promise<Record<string, unknown> | null>;
-  postInstanceJson(
-    roomId: string,
-    instanceId: string,
-    pathSuffix: string,
-    body: unknown,
-  ): Promise<unknown>;
+  fetchCapabilities(roomId: string, instanceId: string): Promise<Record<string, unknown> | null>;
+  postInstanceJson(roomId: string, instanceId: string, pathSuffix: string, body: unknown): Promise<unknown>;
   getEventsUrl(roomId: string, sinceRevision: number): string;
 }
 
 export function createRoomdClient(roomdUrl: string): RoomdClient {
+  const roomPath = (roomId: string, suffix = ""): string =>
+    `/rooms/${encodeURIComponent(roomId)}${suffix}`;
+  const instancePath = (roomId: string, instanceId: string, suffix: string): string =>
+    roomPath(roomId, `/instances/${encodeURIComponent(instanceId)}${suffix}`);
+  const postJson = (path: string, body: unknown) =>
+    fetch(new URL(path, roomdUrl), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  const parseJson = <T>(response: Response): Promise<T> => response.json() as Promise<T>;
+
   return {
     async ensureRoom(roomId: string): Promise<void> {
-      const response = await fetch(new URL("/rooms", roomdUrl), {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({ roomId }),
-      });
-
-      if (response.status === 201 || response.status === 409) {
-        return;
+      const response = await postJson("/rooms", { roomId });
+      if (response.status !== 201 && response.status !== 409) {
+        throw new Error(await readErrorMessage(response));
       }
-
-      throw new Error(await readErrorMessage(response));
     },
-
     async fetchRoomState(roomId: string): Promise<RoomState> {
-      const response = await fetch(
-        new URL(`/rooms/${encodeURIComponent(roomId)}/state`, roomdUrl),
-      );
+      const response = await fetch(new URL(roomPath(roomId, "/state"), roomdUrl));
       if (!response.ok) {
         throw new Error(await readErrorMessage(response));
       }
-
-      const data = (await response.json()) as { state: RoomState };
-      return data.state;
+      return (await parseJson<{ state: RoomState }>(response)).state;
     },
-
     async fetchUiResource(roomId: string, instanceId: string): Promise<UiResource> {
-      const response = await fetch(
-        new URL(
-          `/rooms/${encodeURIComponent(roomId)}/instances/${encodeURIComponent(instanceId)}/ui`,
-          roomdUrl,
-        ),
-      );
+      const response = await fetch(new URL(instancePath(roomId, instanceId, "/ui"), roomdUrl));
       if (!response.ok) {
         throw new Error(await readErrorMessage(response));
       }
-
-      const data = (await response.json()) as { resource: UiResource };
-      return data.resource;
+      return (await parseJson<{ resource: UiResource }>(response)).resource;
     },
-
-    async fetchCapabilities(
-      roomId: string,
-      instanceId: string,
-    ): Promise<Record<string, unknown> | null> {
+    async fetchCapabilities(roomId: string, instanceId: string): Promise<Record<string, unknown> | null> {
       const response = await fetch(
-        new URL(
-          `/rooms/${encodeURIComponent(roomId)}/instances/${encodeURIComponent(instanceId)}/capabilities`,
-          roomdUrl,
-        ),
+        new URL(instancePath(roomId, instanceId, "/capabilities"), roomdUrl),
       );
-
       if (!response.ok) {
         return null;
       }
-
-      const data = (await response.json()) as { capabilities: Record<string, unknown> };
-      return data.capabilities;
+      return (await parseJson<{ capabilities: Record<string, unknown> }>(response)).capabilities;
     },
-
-    async postInstanceJson(
-      roomId: string,
-      instanceId: string,
-      pathSuffix: string,
-      body: unknown,
-    ): Promise<unknown> {
-      const response = await fetch(
-        new URL(
-          `/rooms/${encodeURIComponent(roomId)}/instances/${encodeURIComponent(instanceId)}/${pathSuffix}`,
-          roomdUrl,
-        ),
-        {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-          },
-          body: JSON.stringify(body),
-        },
-      );
-
+    async postInstanceJson(roomId: string, instanceId: string, pathSuffix: string, body: unknown): Promise<unknown> {
+      const response = await postJson(instancePath(roomId, instanceId, `/${pathSuffix}`), body);
       if (!response.ok) {
         throw new Error(await readErrorMessage(response));
       }
-
-      return response.json();
+      return parseJson<unknown>(response);
     },
-
     getEventsUrl(roomId: string, sinceRevision: number): string {
-      const eventsUrl = new URL(
-        `/rooms/${encodeURIComponent(roomId)}/events`,
-        roomdUrl,
-      );
+      const eventsUrl = new URL(roomPath(roomId, "/events"), roomdUrl);
       eventsUrl.searchParams.set("sinceRevision", String(sinceRevision));
       return eventsUrl.toString();
     },
@@ -132,6 +80,5 @@ async function readErrorMessage(response: Response): Promise<string> {
   } catch {
     // GOTCHA: roomd may return non-JSON responses on proxy/server failures.
   }
-
   return `${response.status} ${response.statusText}`;
 }

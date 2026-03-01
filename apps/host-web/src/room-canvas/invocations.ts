@@ -4,23 +4,17 @@ export function latestInvocationForInstance(
   invocations: RoomInvocation[],
   mount: RoomMount,
 ): RoomInvocation | undefined {
-  const isAppOnlyTool = (toolName?: string): boolean => {
-    if (!toolName) {
-      return false;
-    }
-    const tool = mount.tools.find((candidate) => candidate.name === toolName);
-    if (!tool?.visibility || tool.visibility.length === 0) {
-      return false;
-    }
-    return !tool.visibility.includes("model");
-  };
-
-  for (let idx = invocations.length - 1; idx >= 0; idx--) {
-    const invocation = invocations[idx];
+  const appOnlyTools = new Set(
+    mount.tools
+      .filter((tool) => tool.visibility?.length && !tool.visibility.includes("model"))
+      .map((tool) => tool.name),
+  );
+  for (let idx = invocations.length - 1; idx >= 0; idx -= 1) {
+    const invocation = invocations[idx]!;
     if (invocation.instanceId !== mount.instanceId) {
       continue;
     }
-    if (isAppOnlyTool(invocation.toolName)) {
+    if (invocation.toolName && appOnlyTools.has(invocation.toolName)) {
       continue;
     }
     return invocation;

@@ -1,3 +1,4 @@
+import type { SidebarMountTool } from "../dev-sidebar/contracts";
 import type { HostUiResourceCsp, HostUiResourcePermissions } from "../implementation";
 
 export interface RoomMount {
@@ -6,14 +7,7 @@ export interface RoomMount {
   uiResourceUri?: string;
   visible: boolean;
   container: { x: number; y: number; w: number; h: number };
-  tools: Array<{
-    name: string;
-    title?: string;
-    description?: string;
-    inputSchema: unknown;
-    uiResourceUri?: string;
-    visibility?: Array<"model" | "app">;
-  }>;
+  tools: SidebarMountTool[];
 }
 
 export interface RoomInvocation {
@@ -29,16 +23,16 @@ export interface RoomInvocation {
 export interface RoomState {
   roomId: string;
   revision: number;
-  mounts: RoomMount[];
   order: string[];
+  mounts: RoomMount[];
   selectedInstanceId: string | null;
   invocations: RoomInvocation[];
 }
 
 export interface RoomEvent {
+  state: RoomState;
   revision: number;
   type: "state-updated" | "snapshot-reset";
-  state: RoomState;
 }
 
 export interface HostConfig {

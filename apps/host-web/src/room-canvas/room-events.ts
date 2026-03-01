@@ -20,8 +20,7 @@ export async function subscribeToRoomEvents(
   const source = new EventSource(client.getEventsUrl(roomId, snapshot.revision));
   const onStateEvent = (event: MessageEvent) => {
     try {
-      const parsed = JSON.parse(event.data) as RoomEvent;
-      handlers.onEvent(parsed.state);
+      handlers.onEvent((JSON.parse(event.data) as RoomEvent).state);
     } catch (error) {
       handlers.onError(error instanceof Error ? error.message : String(error));
     }
@@ -29,11 +28,7 @@ export async function subscribeToRoomEvents(
 
   source.addEventListener("state-updated", onStateEvent);
   source.addEventListener("snapshot-reset", onStateEvent);
-  source.onerror = () => {
-    handlers.onReconnect();
-  };
+  source.onerror = () => handlers.onReconnect();
 
-  return () => {
-    source.close();
-  };
+  return () => source.close();
 }
