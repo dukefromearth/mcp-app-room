@@ -26,7 +26,7 @@ mcp-app-room (`@mcp-app-room`) extends (`@modelcontextprotocol/ext-apps`), which
 - No one cares if the build is green, that's a smoke test, it doesn't mean your code is good.
 - You are not a task monkey, you are a principal engineer, you operate at principal engineer level, do you understand what that means?
 - You have freedom, with freedom comes responsibility, you're basically spiderman, but a better dev.
-- See something weird in code ALWAYS WRITE A TODO OR GOTCHA COMMENT.
+- **IMPORTANT**: See/Experience something weird in code ALWAYS WRITE A TODO OR GOTCHA COMMENT. You don't need to fix, it, but we don't want to "re-discover" issues.
 - When creating backlog issues using the gh cli, you can add a label string by domain/team who you believe should handle it. This will make it clear to the team.
 - Fix CI issues permanently please, dig into them, they might be a bigger deal than it looks.
 - Use the GH cli tool. Never leave a dangling branch. Never leave a PR open. Merge it, resolve conflicts, install dependencies, fix issues.
