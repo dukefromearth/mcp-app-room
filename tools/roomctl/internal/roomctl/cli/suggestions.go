@@ -63,13 +63,22 @@ var (
 		{Cmd: "roomctl health", Description: "Confirm roomd is reachable and responding."},
 		{Cmd: "roomctl inspect --server {{server}}", Description: "Retry with a known-good MCP endpoint after verifying health."},
 	}
+	roomConfigListThenUpsertSuggestions = []suggestion{
+		{Cmd: "roomctl room-config-list --namespace {{namespace}}", Description: "List existing room configurations in this namespace."},
+		{Cmd: "roomctl room-config-upsert --config {{config}} --spec {{spec-json}} --namespace {{namespace}}", Description: "Create a new room configuration before loading it."},
+	}
 )
 
 var errorSuggestions = map[string][]suggestion{
-	"ROOM_EXISTS":              roomStateThenMountSuggestions,
-	"ROOM_NOT_FOUND":           roomCreateThenMountSuggestions,
+	"ROOM_EXISTS":    roomStateThenMountSuggestions,
+	"ROOM_NOT_FOUND": roomCreateThenMountSuggestions,
+	"ROOM_NOT_EMPTY": {
+		{Cmd: "roomctl state --room {{room}}", Description: "Inspect existing mounts before applying another configuration."},
+		{Cmd: "roomctl room-config-plan --config {{config}} --room {{room}} --namespace {{namespace}}", Description: "Preview the load plan before clearing or using another room."},
+	},
 	"INSTANCE_EXISTS":          instanceExistsSuggestions,
 	"INSTANCE_NOT_FOUND":       instanceNotFoundSuggestions,
+	"CONFIG_NOT_FOUND":         roomConfigListThenUpsertSuggestions,
 	"IDEMPOTENCY_CONFLICT":     roomStateThenStateGetSuggestions,
 	"UNSUPPORTED_CAPABILITY":   capabilitiesThenToolsSuggestions,
 	"INVALID_PAYLOAD":          stateThenInspectSuggestions,
@@ -111,6 +120,30 @@ var defaultCommandSuggestions = map[string][]suggestion{
 	"create": {
 		{Cmd: "roomctl mount --room {{room}} --instance {{instance}} --server {{server}} --container {{x}},{{y}},{{w}},{{h}}", Description: "Mount an MCP server into the newly created room."},
 		{Cmd: "roomctl state --room {{room}}", Description: "Inspect current mounts, order, and selected instance."},
+	},
+	"room-config-list": {
+		{Cmd: "roomctl room-config-get --config {{config}} --namespace {{namespace}}", Description: "Inspect a specific room configuration by ID."},
+		{Cmd: "roomctl room-config-load --config {{config}} --room {{room}} --namespace {{namespace}}", Description: "Load a configuration into a room."},
+	},
+	"room-config-get": {
+		{Cmd: "roomctl room-config-load --config {{config}} --room {{room}} --namespace {{namespace}}", Description: "Load this configuration into a room."},
+		{Cmd: "roomctl room-config-upsert --config {{config}} --spec {{spec-json}} --namespace {{namespace}}", Description: "Update configuration values and save a new revision."},
+	},
+	"room-config-upsert": {
+		{Cmd: "roomctl room-config-get --config {{config}} --namespace {{namespace}}", Description: "Verify the saved configuration contract."},
+		{Cmd: "roomctl room-config-plan --config {{config}} --room {{room}} --namespace {{namespace}}", Description: "Preview load behavior before applying."},
+	},
+	"room-config-plan": {
+		{Cmd: "roomctl room-config-load --config {{config}} --room {{room}} --namespace {{namespace}} --dry-run", Description: "Validate load endpoint behavior with no state mutation."},
+		{Cmd: "roomctl room-config-load --config {{config}} --room {{room}} --namespace {{namespace}}", Description: "Apply the planned operations to room state."},
+	},
+	"room-config-load": {
+		{Cmd: "roomctl state --room {{room}}", Description: "Verify room state after loading configuration."},
+		{Cmd: "roomctl room-config-plan --config {{config}} --room {{room}} --namespace {{namespace}}", Description: "Re-check load plan without mutating state."},
+	},
+	"room-config-save": {
+		{Cmd: "roomctl room-config-get --config {{config}} --namespace {{namespace}}", Description: "Inspect the saved configuration payload."},
+		{Cmd: "roomctl room-config-load --config {{config}} --room {{room}} --namespace {{namespace}} --dry-run", Description: "Validate the configuration can be reloaded safely."},
 	},
 	"mount": {
 		{Cmd: "roomctl list-tools --room {{room}} --instance {{instance}}", Description: "List available tools for the mounted instance."},

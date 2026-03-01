@@ -54,6 +54,69 @@ func (c *Client) CreateRoom(ctx context.Context, roomID string) (Envelope, error
 	return c.do(ctx, http.MethodPost, "/rooms", payload)
 }
 
+func (c *Client) RoomConfigList(ctx context.Context, namespace string) (Envelope, error) {
+	query := url.Values{}
+	if strings.TrimSpace(namespace) != "" {
+		query.Set("namespace", strings.TrimSpace(namespace))
+	}
+	return c.doWithQuery(ctx, http.MethodGet, "/room-configs", query, nil)
+}
+
+func (c *Client) RoomConfigGet(ctx context.Context, namespace string, configID string) (Envelope, error) {
+	query := url.Values{}
+	if strings.TrimSpace(namespace) != "" {
+		query.Set("namespace", strings.TrimSpace(namespace))
+	}
+	return c.doWithQuery(
+		ctx,
+		http.MethodGet,
+		"/room-configs/"+url.PathEscape(configID),
+		query,
+		nil,
+	)
+}
+
+func (c *Client) RoomConfigUpsert(ctx context.Context, configID string, payload map[string]any) (Envelope, error) {
+	return c.do(
+		ctx,
+		http.MethodPut,
+		"/room-configs/"+url.PathEscape(configID),
+		payload,
+	)
+}
+
+func (c *Client) RoomConfigLoad(ctx context.Context, configID string, payload map[string]any) (Envelope, error) {
+	return c.do(
+		ctx,
+		http.MethodPost,
+		"/room-configs/"+url.PathEscape(configID)+"/load",
+		payload,
+	)
+}
+
+func (c *Client) RoomConfigPlan(ctx context.Context, configID string, payload map[string]any) (Envelope, error) {
+	return c.do(
+		ctx,
+		http.MethodPost,
+		"/room-configs/"+url.PathEscape(configID)+"/plan",
+		payload,
+	)
+}
+
+func (c *Client) SaveRoomAsConfig(
+	ctx context.Context,
+	roomID string,
+	configID string,
+	payload map[string]any,
+) (Envelope, error) {
+	return c.do(
+		ctx,
+		http.MethodPost,
+		"/rooms/"+url.PathEscape(roomID)+"/configs/"+url.PathEscape(configID)+"/save",
+		payload,
+	)
+}
+
 func (c *Client) State(ctx context.Context, roomID string) (Envelope, error) {
 	return c.do(ctx, http.MethodGet, "/rooms/"+url.PathEscape(roomID)+"/state", nil)
 }
@@ -207,6 +270,25 @@ func (c *Client) do(ctx context.Context, method string, endpoint string, payload
 		return Envelope{}, err
 	}
 
+	return c.doURL(ctx, method, requestURL, payload)
+}
+
+func (c *Client) doWithQuery(
+	ctx context.Context,
+	method string,
+	endpoint string,
+	query url.Values,
+	payload any,
+) (Envelope, error) {
+	requestURL, err := c.joinPathWithQuery(endpoint, query)
+	if err != nil {
+		return Envelope{}, err
+	}
+
+	return c.doURL(ctx, method, requestURL, payload)
+}
+
+func (c *Client) doURL(ctx context.Context, method string, requestURL string, payload any) (Envelope, error) {
 	var body io.Reader
 	if payload != nil {
 		encoded, err := json.Marshal(payload)
@@ -258,11 +340,24 @@ func decodeBody(input io.Reader) (any, error) {
 }
 
 func (c *Client) joinPath(endpoint string) (string, error) {
+	return c.joinPathWithQuery(endpoint, nil)
+}
+
+func (c *Client) joinPathWithQuery(endpoint string, query url.Values) (string, error) {
 	parsed, err := url.Parse(c.baseURL)
 	if err != nil {
 		return "", fmt.Errorf("parse base URL: %w", err)
 	}
 
 	parsed.Path = path.Join(parsed.Path, endpoint)
+	if query != nil {
+		merged := parsed.Query()
+		for key, values := range query {
+			for _, value := range values {
+				merged.Set(key, value)
+			}
+		}
+		parsed.RawQuery = merged.Encode()
+	}
 	return parsed.String(), nil
 }

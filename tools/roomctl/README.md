@@ -20,6 +20,10 @@ npm run roomd:cli -- prompts-get --room demo --instance inst-1 --name summarize 
 npm run roomd:cli -- complete --room demo --instance inst-1 --params '{"ref":{"type":"ref/prompt","name":"summarize"},"argument":{"name":"topic","value":"mc"}}'
 npm run roomd:cli -- resources-subscribe --room demo --instance inst-1 --uri file://notes.md
 npm run roomd:cli -- await --room demo --instance inst-1 --event app_initialized --max-wait 20s
+npm run roomd:cli -- room-config-upsert --config banking-room --spec '{"schemaVersion":"room-config.v1","instances":[{"instanceId":"ledger","server":"http://localhost:3114/mcp","container":{"x":0,"y":0,"w":6,"h":4}}]}'
+npm run roomd:cli -- room-config-plan --config banking-room --room demo
+npm run roomd:cli -- room-config-load --config banking-room --room demo --idempotency-key cfg-load-1
+npm run roomd:cli -- room-config-save --room demo --config banking-room --visibility shared
 ```
 
 When `--output pretty` is used and a request fails, `roomctl` prints

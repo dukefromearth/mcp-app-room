@@ -32,6 +32,8 @@ interface RuntimeConfig {
   servers: string[];
   roomdUrl: string;
   roomId: string;
+  roomConfigId?: string;
+  roomConfigNamespace?: string;
   hostMode: string;
   remoteDebuggingPort: number;
   securityProfile: SecurityProfile;
@@ -43,6 +45,8 @@ interface CliOverrides {
   sandboxPort?: number;
   roomdUrl?: string;
   roomId?: string;
+  roomConfigId?: string;
+  roomConfigNamespace?: string;
   hostMode?: string;
   remoteDebuggingPort?: number;
   securityProfile?: SecurityProfile;
@@ -153,6 +157,19 @@ function parseCliOverrides(argv: string[]): CliOverrides {
       i += 1;
       continue;
     }
+    if (token === "--room-config-id") {
+      overrides.roomConfigId = asNonEmptyString(next, "--room-config-id");
+      i += 1;
+      continue;
+    }
+    if (token === "--room-config-namespace") {
+      overrides.roomConfigNamespace = asNonEmptyString(
+        next,
+        "--room-config-namespace",
+      );
+      i += 1;
+      continue;
+    }
     if (token === "--browser-remote-debugging-port") {
       overrides.remoteDebuggingPort = asInteger(
         next,
@@ -207,6 +224,15 @@ function loadRuntimeConfig(argv: string[]): RuntimeConfig {
 
   const roomdBaseUrl = overrides.roomdUrl
     ?? asNonEmptyString(roomd.baseUrl, "roomd.baseUrl");
+  const roomConfigIdFromConfig =
+    typeof host.roomConfigId === "string" && host.roomConfigId.trim().length > 0
+      ? host.roomConfigId.trim()
+      : undefined;
+  const roomConfigNamespaceFromConfig =
+    typeof host.roomConfigNamespace === "string"
+    && host.roomConfigNamespace.trim().length > 0
+      ? host.roomConfigNamespace.trim()
+      : undefined;
 
   const securityProfile = overrides.securityProfile
     ?? asNonEmptyString(security.profile, "security.profile") as SecurityProfile;
@@ -224,6 +250,16 @@ function loadRuntimeConfig(argv: string[]): RuntimeConfig {
     ]),
     roomdUrl: roomdBaseUrl,
     roomId: overrides.roomId ?? asNonEmptyString(host.roomId, "host.roomId"),
+    ...(overrides.roomConfigId
+      ? { roomConfigId: overrides.roomConfigId }
+      : roomConfigIdFromConfig
+        ? { roomConfigId: roomConfigIdFromConfig }
+        : {}),
+    ...(overrides.roomConfigNamespace
+      ? { roomConfigNamespace: overrides.roomConfigNamespace }
+      : roomConfigNamespaceFromConfig
+        ? { roomConfigNamespace: roomConfigNamespaceFromConfig }
+        : {}),
     hostMode: overrides.hostMode ?? asNonEmptyString(host.mode, "host.mode"),
     remoteDebuggingPort: overrides.remoteDebuggingPort
       ?? asInteger(
@@ -242,6 +278,8 @@ const SANDBOX_PORT = runtimeConfig.sandboxPort;
 const SERVERS = runtimeConfig.servers;
 const ROOMD_URL = runtimeConfig.roomdUrl;
 const ROOM_ID = runtimeConfig.roomId;
+const ROOM_CONFIG_ID = runtimeConfig.roomConfigId;
+const ROOM_CONFIG_NAMESPACE = runtimeConfig.roomConfigNamespace;
 const HOST_MODE = runtimeConfig.hostMode;
 const REMOTE_DEBUGGING_PORT = runtimeConfig.remoteDebuggingPort;
 
@@ -360,6 +398,8 @@ hostApp.get("/api/host-config", (_req, res) => {
     mode: HOST_MODE,
     roomdUrl: ROOMD_URL || undefined,
     roomId: ROOM_ID,
+    roomConfigId: ROOM_CONFIG_ID,
+    roomConfigNamespace: ROOM_CONFIG_NAMESPACE,
   });
 });
 

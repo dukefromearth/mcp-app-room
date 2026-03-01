@@ -70,6 +70,10 @@ npm run roomd:cli -- tool-call --room demo --instance inst-1 --name get-time --a
 npm run roomd:cli -- select --room demo --instance inst-1
 npm run roomd:cli -- reorder --room demo --order inst-2,inst-1
 npm run roomd:cli -- layout --room demo --ops '[{"op":"swap","first":"inst-1","second":"inst-2"}]'
+npm run roomd:cli -- room-config-upsert --config banking-room --spec '{"schemaVersion":"room-config.v1","instances":[{"instanceId":"ledger","server":"http://localhost:3001/mcp","container":{"x":0,"y":0,"w":6,"h":4}}]}'
+npm run roomd:cli -- room-config-plan --config banking-room --room demo
+npm run roomd:cli -- room-config-load --config banking-room --room demo --idempotency-key cfg-load-1
+npm run roomd:cli -- room-config-save --room demo --config banking-room
 ```
 
 Global flags:

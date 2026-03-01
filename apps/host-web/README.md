@@ -39,6 +39,11 @@ Open room mode:
 http://localhost:{{host.ports.host}}/?mode=room&roomd={{roomd.baseUrl}}&room={{host.roomId}}
 ```
 
+Optional config bootstrap:
+
+- Set `host.roomConfigId` (and optional `host.roomConfigNamespace`) in `config/global.yaml`.
+- On first room connect, host auto-loads that configuration only when the room has no mounts.
+
 ## Dev Sidebar
 
 Room mode includes a protocol-fidelity dev sidebar for mounted instances:

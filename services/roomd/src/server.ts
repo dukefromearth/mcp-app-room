@@ -19,11 +19,14 @@ import { invalidPayloadError, mapUnknownError } from "./errors";
 import { RoomStore } from "./store";
 import { ClientCapabilityRegistry } from "./client-capabilities/registry";
 import { registerInstanceRoutes } from "./server-instance-routes";
+import { registerRoomConfigRoutes } from "./server-room-config-routes";
 import type { HttpAuthStrategyConfig } from "./types";
 import {
   resolveRemoteHttpOriginAllowlist,
   resolveStdioAllowlist,
 } from "./dev-security-overrides";
+import { RoomConfigService } from "./room-config/service";
+import { createSqliteRoomConfigRepository } from "./room-config/sqlite-repository";
 
 const port = Number.parseInt(process.env.ROOMD_PORT ?? "8090", 10);
 const eventWindowSize = Number.parseInt(
@@ -64,6 +67,8 @@ const remoteHttpOriginAllowlist = resolveRemoteHttpOriginAllowlist(
 );
 const httpAuthConfig = parseHttpAuthConfig(process.env.ROOMD_HTTP_AUTH_CONFIG);
 const clientCapabilityRegistry = new ClientCapabilityRegistry();
+const roomConfigDbPath = process.env.ROOMD_CONFIG_DB_PATH?.trim()
+  || "data/room-configs.sqlite";
 
 const store = new RoomStore(
   new RealMcpSessionFactory({
@@ -82,6 +87,9 @@ const store = new RoomStore(
     clientCapabilityRegistry,
   },
 );
+const roomConfigRepository = createSqliteRoomConfigRepository(roomConfigDbPath);
+await roomConfigRepository.initialize();
+const roomConfigService = new RoomConfigService(roomConfigRepository, store);
 
 for (const roomId of parseCommaList(process.env.ROOMD_BOOTSTRAP_ROOMS)) {
   if (!store.hasRoom(roomId)) {
@@ -174,6 +182,7 @@ registerInstanceRoutes(app, store, {
   subscribeRequestParamsSchema: SubscribeRequestParamsSchema,
   unsubscribeRequestParamsSchema: UnsubscribeRequestParamsSchema,
 });
+registerRoomConfigRoutes(app, roomConfigService);
 
 app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   const mapped = error instanceof z.ZodError

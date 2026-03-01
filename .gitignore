@@ -64,6 +64,8 @@ web_modules/
 
 # Generated conformance artifacts
 artifacts/
+services/roomd/data/
+data/room-configs.sqlite*
 
 # Yarn Integrity file
 .yarn-integrity
