@@ -17,6 +17,7 @@ Runtime and domain modules for the room control plane.
 - `server.ts`: HTTP/SSE adapter.
 - `store.ts`: room domain model and command processing.
 - `mcp.ts`: external MCP integration boundary.
+- `store/*`: internal `RoomStore` seams (`layout`, parsing/clone helpers, server policy checks) extracted for localized refactors only; no external contract changes.
 
 `server.ts` exposes mounted-instance MCP passthrough routes for
 tools/resources/prompts/completion (including prompt get and resource

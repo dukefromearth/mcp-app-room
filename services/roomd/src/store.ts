@@ -2,9 +2,20 @@ import type { CommandEnvelope } from "./types";
 import { stableStringify } from "./hash";
 import { ensureServerCapability, ensureServerCapabilityFeature } from "./capabilities";
 import { HttpError } from "./errors";
-import { normalizeServerTarget, parseServerDescriptor } from "./server-target";
+import { normalizeServerTarget } from "./server-target";
 import { ClientCapabilityRegistry } from "./client-capabilities/registry";
-import { matchesHttpUrlPrefix } from "./http-url-prefix";
+import { computeLayoutUpdate } from "./store/layout";
+import {
+  assertFileRootUris,
+  buildExampleCommands,
+  cloneMountTool,
+  cloneNegotiatedSession,
+  cloneUnknown,
+  isUiCandidateResource,
+  parseResourcesPage,
+  parseToolsPage,
+} from "./store/parsing";
+import { assertServerAllowed as assertServerAllowedByPolicy } from "./store/server-policy";
 import type {
   ClientRoot,
   CompletionCompleteParams,
@@ -63,40 +74,7 @@ interface CommandExecutionResult {
   response: CommandSuccessResponse;
 }
 
-interface ParsedToolsPage {
-  tools: RoomMountTool[];
-  nextCursor?: string;
-}
-
-interface ParsedResourcesPage {
-  resources: Array<{ uri: string; mimeType?: string }>;
-  nextCursor?: string;
-}
-
-interface LayoutAdapter {
-  readonly name: LayoutAdapterName;
-  normalize(container: GridContainer): GridContainer;
-}
-
-const grid12LayoutAdapter: LayoutAdapter = {
-  name: "grid12",
-  normalize(container) {
-    const clampedWidth = clamp(Math.trunc(container.w), 1, 12);
-    const clampedHeight = Math.max(1, Math.trunc(container.h));
-    const clampedX = clamp(Math.trunc(container.x), 0, Math.max(0, 12 - clampedWidth));
-    const clampedY = Math.max(0, Math.trunc(container.y));
-    return {
-      x: clampedX,
-      y: clampedY,
-      w: clampedWidth,
-      h: clampedHeight,
-    };
-  },
-};
-
 const INSPECTION_ROOM_ID = "__inspect__";
-const RESOURCE_MIME_TYPE = "text/html;profile=mcp-app";
-const RESOURCE_URI_META_KEY = "ui/resourceUri";
 
 export class RoomStore {
   private readonly rooms = new Map<string, RoomRuntime>();
@@ -780,15 +758,7 @@ export class RoomStore {
       room.selectedInstanceId = mount.instanceId;
 
       const state = this.commit(room, "mount");
-
-      return {
-        statusCode: 200,
-        response: {
-          ok: true,
-          revision: state.revision,
-          state,
-        },
-      };
+      return this.successWithState(state);
     } catch (error) {
       if (!hadSessionForServer) {
         room.sessions.delete(normalizedServer);
@@ -808,27 +778,12 @@ export class RoomStore {
     const mount = this.requireMount(room, instanceId);
 
     if (mount.visible === visible) {
-      return {
-        statusCode: 200,
-        response: {
-          ok: true,
-          revision: room.revision,
-          state: this.buildState(room),
-        },
-      };
+      return this.successFromRoom(room);
     }
 
     mount.visible = visible;
     const state = this.commit(room, reason);
-
-    return {
-      statusCode: 200,
-      response: {
-        ok: true,
-        revision: state.revision,
-        state,
-      },
-    };
+    return this.successWithState(state);
   }
 
   private async handleUnmount(
@@ -867,15 +822,7 @@ export class RoomStore {
     );
 
     const state = this.commit(room, "unmount");
-
-    return {
-      statusCode: 200,
-      response: {
-        ok: true,
-        revision: state.revision,
-        state,
-      },
-    };
+    return this.successWithState(state);
   }
 
   private handleSelect(
@@ -891,26 +838,12 @@ export class RoomStore {
     }
 
     if (room.selectedInstanceId === instanceId) {
-      return {
-        statusCode: 200,
-        response: {
-          ok: true,
-          revision: room.revision,
-          state: this.buildState(room),
-        },
-      };
+      return this.successFromRoom(room);
     }
 
     room.selectedInstanceId = instanceId;
     const state = this.commit(room, "select");
-    return {
-      statusCode: 200,
-      response: {
-        ok: true,
-        revision: state.revision,
-        state,
-      },
-    };
+    return this.successWithState(state);
   }
 
   private handleReorder(
@@ -948,26 +881,12 @@ export class RoomStore {
       order.length === room.order.length &&
       order.every((id, idx) => id === room.order[idx])
     ) {
-      return {
-        statusCode: 200,
-        response: {
-          ok: true,
-          revision: room.revision,
-          state: this.buildState(room),
-        },
-      };
+      return this.successFromRoom(room);
     }
 
     room.order = [...order];
     const state = this.commit(room, "reorder");
-    return {
-      statusCode: 200,
-      response: {
-        ok: true,
-        revision: state.revision,
-        state,
-      },
-    };
+    return this.successWithState(state);
   }
 
   private handleLayout(
@@ -975,179 +894,37 @@ export class RoomStore {
     adapterName: LayoutAdapterName | undefined,
     ops: LayoutOp[],
   ): CommandExecutionResult {
-    if (ops.length === 0) {
-      throw new HttpError(
-        400,
-        "INVALID_COMMAND",
-        "Layout command must include at least one operation",
-      );
-    }
-
-    const adapter = this.resolveLayoutAdapter(adapterName);
-    const nextContainers = new Map<string, GridContainer>();
+    const containers = new Map<string, GridContainer>();
     for (const [instanceId, mount] of room.mounts.entries()) {
-      nextContainers.set(instanceId, adapter.normalize(mount.container));
-    }
-    let nextOrder = [...room.order];
-
-    for (const op of ops) {
-      switch (op.op) {
-        case "set": {
-          this.assertMountedInstance(nextContainers, op.instanceId);
-          nextContainers.set(op.instanceId, adapter.normalize(op.container));
-          break;
-        }
-        case "move": {
-          const current = this.requireLayoutContainer(nextContainers, op.instanceId);
-          nextContainers.set(
-            op.instanceId,
-            adapter.normalize({
-              ...current,
-              x: current.x + op.dx,
-              y: current.y + op.dy,
-            }),
-          );
-          break;
-        }
-        case "resize": {
-          const current = this.requireLayoutContainer(nextContainers, op.instanceId);
-          nextContainers.set(
-            op.instanceId,
-            adapter.normalize({
-              ...current,
-              w: current.w + op.dw,
-              h: current.h + op.dh,
-            }),
-          );
-          break;
-        }
-        case "swap": {
-          if (op.first === op.second) {
-            throw new HttpError(
-              400,
-              "INVALID_COMMAND",
-              "Layout swap requires two distinct instance IDs",
-            );
-          }
-          const first = this.requireLayoutContainer(nextContainers, op.first);
-          const second = this.requireLayoutContainer(nextContainers, op.second);
-          nextContainers.set(op.first, adapter.normalize(second));
-          nextContainers.set(op.second, adapter.normalize(first));
-          break;
-        }
-        case "bring-to-front": {
-          this.assertMountedInstance(nextContainers, op.instanceId);
-          nextOrder = moveToEnd(nextOrder, op.instanceId);
-          break;
-        }
-        case "send-to-back": {
-          this.assertMountedInstance(nextContainers, op.instanceId);
-          nextOrder = moveToStart(nextOrder, op.instanceId);
-          break;
-        }
-        case "align": {
-          const instanceIds = this.resolveLayoutInstanceIds(
-            room,
-            nextContainers,
-            op.instanceIds,
-          );
-          for (const instanceId of instanceIds) {
-            const current = this.requireLayoutContainer(nextContainers, instanceId);
-            nextContainers.set(
-              instanceId,
-              adapter.normalize({
-                ...current,
-                [op.axis]: op.value,
-              }),
-            );
-          }
-          break;
-        }
-        case "distribute": {
-          const instanceIds = this.resolveLayoutInstanceIds(
-            room,
-            nextContainers,
-            op.instanceIds,
-          );
-          if (instanceIds.length < 2) {
-            break;
-          }
-          const gap = op.gap ?? 0;
-          const sorted = [...instanceIds].sort((a, b) => {
-            const first = this.requireLayoutContainer(nextContainers, a);
-            const second = this.requireLayoutContainer(nextContainers, b);
-            return first[op.axis] - second[op.axis];
-          });
-          let cursor = this.requireLayoutContainer(nextContainers, sorted[0])[op.axis];
-          for (const instanceId of sorted) {
-            const current = this.requireLayoutContainer(nextContainers, instanceId);
-            const updated = adapter.normalize({
-              ...current,
-              [op.axis]: cursor,
-            });
-            nextContainers.set(instanceId, updated);
-            const size = op.axis === "x" ? updated.w : updated.h;
-            cursor += size + gap;
-          }
-          break;
-        }
-        case "snap": {
-          const stepX = op.stepX ?? 1;
-          const stepY = op.stepY ?? 1;
-          const instanceIds = this.resolveLayoutInstanceIds(
-            room,
-            nextContainers,
-            op.instanceIds,
-          );
-          for (const instanceId of instanceIds) {
-            const current = this.requireLayoutContainer(nextContainers, instanceId);
-            nextContainers.set(
-              instanceId,
-              adapter.normalize({
-                x: snapToStepNonNegative(current.x, stepX),
-                y: snapToStepNonNegative(current.y, stepY),
-                w: snapToStepPositive(current.w, stepX),
-                h: snapToStepPositive(current.h, stepY),
-              }),
-            );
-          }
-          break;
-        }
-        default:
-          throw new HttpError(
-            400,
-            "INVALID_COMMAND",
-            `Unsupported layout operation: ${String(op)}`,
-          );
-      }
+      containers.set(instanceId, mount.container);
     }
 
-    let changed = false;
-    for (const [instanceId, container] of nextContainers.entries()) {
+    const result = computeLayoutUpdate({
+      adapterName,
+      ops,
+      order: room.order,
+      containers,
+    });
+
+    if (!result.changed) {
+      return this.successFromRoom(room);
+    }
+
+    for (const [instanceId, container] of result.nextContainers.entries()) {
       const mount = this.requireMount(room, instanceId);
-      if (!sameContainer(mount.container, container)) {
-        mount.container = { ...container };
-        changed = true;
-      }
+      mount.container = { ...container };
     }
-
-    if (!sameOrder(room.order, nextOrder)) {
-      room.order = [...nextOrder];
-      changed = true;
-    }
-
-    if (!changed) {
-      return {
-        statusCode: 200,
-        response: {
-          ok: true,
-          revision: room.revision,
-          state: this.buildState(room),
-        },
-      };
-    }
+    room.order = [...result.nextOrder];
 
     const state = this.commit(room, "layout");
+    return this.successWithState(state);
+  }
+
+  private successFromRoom(room: RoomRuntime): CommandExecutionResult {
+    return this.successWithState(this.buildState(room));
+  }
+
+  private successWithState(state: RoomState): CommandExecutionResult {
     return {
       statusCode: 200,
       response: {
@@ -1156,67 +933,6 @@ export class RoomStore {
         state,
       },
     };
-  }
-
-  private resolveLayoutAdapter(name: LayoutAdapterName | undefined): LayoutAdapter {
-    const effective = name ?? "grid12";
-    if (effective === "grid12") {
-      return grid12LayoutAdapter;
-    }
-    throw new HttpError(
-      400,
-      "INVALID_COMMAND",
-      `Unsupported layout adapter: ${effective}`,
-    );
-  }
-
-  private resolveLayoutInstanceIds(
-    room: RoomRuntime,
-    containers: Map<string, GridContainer>,
-    instanceIds: string[] | undefined,
-  ): string[] {
-    if (!instanceIds || instanceIds.length === 0) {
-      return [...room.order];
-    }
-    const seen = new Set<string>();
-    const resolved: string[] = [];
-    for (const instanceId of instanceIds) {
-      if (seen.has(instanceId)) {
-        continue;
-      }
-      this.assertMountedInstance(containers, instanceId);
-      seen.add(instanceId);
-      resolved.push(instanceId);
-    }
-    return resolved;
-  }
-
-  private assertMountedInstance(
-    containers: Map<string, GridContainer>,
-    instanceId: string,
-  ): void {
-    if (!containers.has(instanceId)) {
-      throw new HttpError(
-        404,
-        "INSTANCE_NOT_FOUND",
-        `Instance not found: ${instanceId}`,
-      );
-    }
-  }
-
-  private requireLayoutContainer(
-    containers: Map<string, GridContainer>,
-    instanceId: string,
-  ): GridContainer {
-    const container = containers.get(instanceId);
-    if (!container) {
-      throw new HttpError(
-        404,
-        "INSTANCE_NOT_FOUND",
-        `Instance not found: ${instanceId}`,
-      );
-    }
-    return container;
   }
 
   private insertInvocation(room: RoomRuntime, invocation: RoomInvocation): void {
@@ -1329,349 +1045,11 @@ export class RoomStore {
   }
 
   private assertServerAllowed(serverUrl: string): void {
-    const descriptor = parseServerDescriptor(serverUrl);
-
-    if (descriptor.kind === "http") {
-      if (this.serverAllowlist.length > 0) {
-        const allowedByPrefix = this.serverAllowlist.some((prefix) =>
-          matchesHttpUrlPrefix(descriptor.url, prefix),
-        );
-
-        if (!allowedByPrefix) {
-          throw new HttpError(
-            403,
-            "SERVER_NOT_ALLOWLISTED",
-            `Server URL is not allowlisted: ${descriptor.url}`,
-          );
-        }
-        return;
-      }
-
-      const parsed = new URL(descriptor.url);
-      if (isLoopbackHost(parsed.hostname)) {
-        return;
-      }
-
-      if (!this.allowRemoteHttpServers) {
-        throw new HttpError(
-          403,
-          "SERVER_NOT_ALLOWLISTED",
-          `Remote HTTP server blocked by policy: ${descriptor.url}`,
-          {
-            hint: "Set ROOMD_ALLOW_REMOTE_HTTP_SERVERS=true and configure ROOMD_REMOTE_HTTP_ORIGIN_ALLOWLIST.",
-          },
-        );
-      }
-
-      if (this.remoteHttpOriginAllowlist.length === 0) {
-        throw new HttpError(
-          403,
-          "SERVER_NOT_ALLOWLISTED",
-          `Remote HTTP server origin is not allowlisted: ${parsed.origin}`,
-          {
-            hint: "Set ROOMD_REMOTE_HTTP_ORIGIN_ALLOWLIST to explicit allowed origins (comma-separated, or *).",
-          },
-        );
-      }
-
-      const allowedOrigin =
-        this.remoteHttpOriginAllowlist.includes("*") ||
-        this.remoteHttpOriginAllowlist.includes(parsed.origin);
-
-      if (!allowedOrigin) {
-        throw new HttpError(
-          403,
-          "SERVER_NOT_ALLOWLISTED",
-          `Remote HTTP server origin is not allowlisted: ${parsed.origin}`,
-          {
-            details: {
-              origin: parsed.origin,
-              configuredOrigins: [...this.remoteHttpOriginAllowlist],
-            },
-          },
-        );
-      }
-      return;
-    }
-
-    if (this.stdioCommandAllowlist.includes("*")) {
-      return;
-    }
-
-    if (
-      this.stdioCommandAllowlist.length === 0 ||
-      !this.stdioCommandAllowlist.includes(descriptor.command)
-    ) {
-      throw new HttpError(
-        403,
-        "SERVER_NOT_ALLOWLISTED",
-        `Stdio command is not allowlisted: ${descriptor.command}`,
-        {
-          hint: "Set ROOMD_STDIO_COMMAND_ALLOWLIST to allowed commands (comma-separated, or *).",
-        },
-      );
-    }
-  }
-}
-
-function clamp(value: number, min: number, max: number): number {
-  if (value < min) {
-    return min;
-  }
-  if (value > max) {
-    return max;
-  }
-  return value;
-}
-
-function isLoopbackHost(hostname: string): boolean {
-  const normalized = hostname.trim().toLowerCase();
-  return (
-    normalized === "localhost" ||
-    normalized === "127.0.0.1" ||
-    normalized === "::1"
-  );
-}
-
-function sameContainer(left: GridContainer, right: GridContainer): boolean {
-  return (
-    left.x === right.x &&
-    left.y === right.y &&
-    left.w === right.w &&
-    left.h === right.h
-  );
-}
-
-function sameOrder(left: string[], right: string[]): boolean {
-  return left.length === right.length && left.every((value, idx) => value === right[idx]);
-}
-
-function moveToStart(items: string[], value: string): string[] {
-  const without = items.filter((item) => item !== value);
-  return [value, ...without];
-}
-
-function moveToEnd(items: string[], value: string): string[] {
-  const without = items.filter((item) => item !== value);
-  return [...without, value];
-}
-
-function snapToStepNonNegative(value: number, step: number): number {
-  return Math.max(0, Math.round(value / step) * step);
-}
-
-function snapToStepPositive(value: number, step: number): number {
-  return Math.max(1, Math.round(value / step) * step);
-}
-
-function parseToolsPage(payload: unknown): ParsedToolsPage {
-  const body = asRecord(payload);
-  const rawTools = Array.isArray(body?.tools) ? body.tools : [];
-  const tools: RoomMountTool[] = [];
-
-  for (const rawTool of rawTools) {
-    const tool = asRecord(rawTool);
-    if (!tool) {
-      continue;
-    }
-    const name = asNonEmptyString(tool?.name);
-    if (!name) {
-      continue;
-    }
-
-    const title = asNonEmptyString(tool?.title);
-    const description = asNonEmptyString(tool?.description);
-    const inputSchema =
-      tool?.inputSchema === undefined
-        ? { type: "object", properties: {} }
-        : cloneUnknown(tool.inputSchema);
-    const uiResourceUri = extractToolUiResourceUri(tool);
-    const visibility = extractToolVisibility(tool);
-
-    tools.push({
-      name,
-      ...(title ? { title } : {}),
-      ...(description ? { description } : {}),
-      inputSchema,
-      visibility,
-      ...(uiResourceUri ? { uiResourceUri } : {}),
+    assertServerAllowedByPolicy(serverUrl, {
+      serverAllowlist: this.serverAllowlist,
+      stdioCommandAllowlist: this.stdioCommandAllowlist,
+      allowRemoteHttpServers: this.allowRemoteHttpServers,
+      remoteHttpOriginAllowlist: this.remoteHttpOriginAllowlist,
     });
-  }
-
-  return {
-    tools,
-    nextCursor: asNonEmptyString(body?.nextCursor),
-  };
-}
-
-function parseResourcesPage(payload: unknown): ParsedResourcesPage {
-  const body = asRecord(payload);
-  const rawResources = Array.isArray(body?.resources) ? body.resources : [];
-  const resources: Array<{ uri: string; mimeType?: string }> = [];
-
-  for (const rawResource of rawResources) {
-    const resource = asRecord(rawResource);
-    const uri = asNonEmptyString(resource?.uri);
-    if (!uri) {
-      continue;
-    }
-    const mimeType = asNonEmptyString(resource?.mimeType);
-    resources.push({ uri, ...(mimeType ? { mimeType } : {}) });
-  }
-
-  return {
-    resources,
-    nextCursor: asNonEmptyString(body?.nextCursor),
-  };
-}
-
-function isUiCandidateResource(resource: { uri: string; mimeType?: string }): boolean {
-  if (resource.uri.startsWith("ui://")) {
-    return true;
-  }
-  return resource.mimeType === RESOURCE_MIME_TYPE;
-}
-
-function buildExampleCommands(serverUrl: string, uiCandidates: string[]): string[] {
-  const quotedServer = shellQuote(serverUrl);
-  const baseMount = `roomctl mount --room <room-id> --instance <instance-id> --server ${quotedServer} --container 0,0,4,12`;
-  const inspect = `roomctl inspect --server ${quotedServer}`;
-
-  if (uiCandidates.length === 0) {
-    return [baseMount, inspect];
-  }
-
-  if (uiCandidates.length === 1) {
-    return [
-      baseMount,
-      `${baseMount} --ui-resource-uri ${shellQuote(uiCandidates[0])}`,
-    ];
-  }
-
-  return [
-    baseMount,
-    inspect,
-    ...uiCandidates.map((uri) => `${baseMount} --ui-resource-uri ${shellQuote(uri)}`),
-  ];
-}
-
-function shellQuote(value: string): string {
-  if (/^[A-Za-z0-9._~:/?#\[\]@!$&()*+,;=-]+$/.test(value)) {
-    return value;
-  }
-  return `'${value.replaceAll("'", "'\\''")}'`;
-}
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return undefined;
-  }
-  return value as Record<string, unknown>;
-}
-
-function asNonEmptyString(value: unknown): string | undefined {
-  if (typeof value !== "string") {
-    return undefined;
-  }
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
-
-function extractToolUiResourceUri(tool: Record<string, unknown>): string | undefined {
-  const meta = asRecord(tool._meta);
-  const nestedUri = asNonEmptyString(asRecord(meta?.ui)?.resourceUri);
-  if (nestedUri && nestedUri.startsWith("ui://")) {
-    return nestedUri;
-  }
-
-  const flatUri = asNonEmptyString(meta?.[RESOURCE_URI_META_KEY]);
-  if (flatUri && flatUri.startsWith("ui://")) {
-    return flatUri;
-  }
-
-  if (nestedUri || flatUri) {
-    // GOTCHA: malformed UI URI metadata must not crash inspection.
-    return undefined;
-  }
-  return undefined;
-}
-
-function extractToolVisibility(tool: Record<string, unknown>): Array<"model" | "app"> {
-  const meta = asRecord(tool._meta);
-  const rawVisibility = asRecord(meta?.ui)?.visibility;
-  return normalizeToolVisibility(rawVisibility);
-}
-
-function normalizeToolVisibility(
-  rawVisibility: unknown,
-): Array<"model" | "app"> {
-  if (!Array.isArray(rawVisibility)) {
-    return ["model", "app"];
-  }
-
-  const normalized = new Set<"model" | "app">();
-  for (const value of rawVisibility) {
-    if (value === "model" || value === "app") {
-      normalized.add(value);
-    }
-  }
-
-  if (normalized.size === 0) {
-    // GOTCHA: invalid visibility metadata should degrade to default host behavior.
-    return ["model", "app"];
-  }
-  return [...normalized];
-}
-
-function cloneMountTool(tool: RoomMountTool): RoomMountTool {
-  return {
-    ...tool,
-    ...(tool.visibility ? { visibility: [...tool.visibility] } : {}),
-    inputSchema: cloneUnknown(tool.inputSchema),
-  };
-}
-
-function cloneNegotiatedSession(session: NegotiatedSession): NegotiatedSession {
-  return {
-    ...session,
-    capabilities: cloneUnknown(session.capabilities),
-    extensions: cloneUnknown(session.extensions),
-    ...(session.clientCapabilities
-      ? { clientCapabilities: cloneUnknown(session.clientCapabilities) }
-      : {}),
-  };
-}
-
-function cloneUnknown<T>(value: T): T {
-  try {
-    return structuredClone(value);
-  } catch {
-    return value;
-  }
-}
-
-function assertFileRootUris(roots: ClientRoot[]): void {
-  for (const root of roots) {
-    if (isFileUri(root.uri)) {
-      continue;
-    }
-    throw new HttpError(
-      400,
-      "INVALID_PAYLOAD",
-      `Root URI must be a file:// URI: ${root.uri}`,
-      {
-        details: {
-          uri: root.uri,
-        },
-      },
-    );
-  }
-}
-
-function isFileUri(value: string): boolean {
-  try {
-    return new URL(value).protocol === "file:";
-  } catch {
-    return false;
   }
 }
