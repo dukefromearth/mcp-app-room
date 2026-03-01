@@ -104,6 +104,7 @@ export interface RoomMountTool {
   title?: string;
   description?: string;
   inputSchema: unknown;
+  visibility?: Array<"model" | "app">;
   uiResourceUri?: string;
 }
 

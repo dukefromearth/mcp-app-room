@@ -11,7 +11,12 @@ export function buildNegotiatedSession(
   clientCapabilities?: Record<string, unknown>,
 ): NegotiatedSession {
   const capabilities = asRecord(client.getServerCapabilities()) ?? {};
-  const extensions = asRecord(capabilities.experimental) ?? {};
+  const experimentalExtensions = asRecord(capabilities.experimental) ?? {};
+  const declaredExtensions = asRecord(capabilities.extensions) ?? {};
+  const extensions = {
+    ...experimentalExtensions,
+    ...declaredExtensions,
+  };
   return {
     protocolVersion,
     capabilities,

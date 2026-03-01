@@ -114,6 +114,7 @@ export interface NewStoreOptions {
   failListResources?: boolean;
   includeToolUiMetadata?: boolean;
   invalidToolUiMetadata?: boolean;
+  toolVisibility?: Array<"model" | "app">;
   negotiatedSession?: Partial<NegotiatedSession>;
   callResult?: Promise<unknown>;
   promptResult?: Promise<unknown>;
@@ -144,6 +145,16 @@ export function newStore(options: NewStoreOptions = {}): RoomStore {
   } else if (options.invalidToolUiMetadata) {
     debugTool._meta = { ui: { resourceUri: "https://invalid.example/app.html" } };
   }
+  if (options.toolVisibility) {
+    const meta = (debugTool._meta ?? {}) as { ui?: Record<string, unknown> };
+    debugTool._meta = {
+      ...meta,
+      ui: {
+        ...(meta.ui ?? {}),
+        visibility: options.toolVisibility,
+      },
+    };
+  }
 
   const session = new FakeSession(
     [
@@ -167,7 +178,9 @@ export function newStore(options: NewStoreOptions = {}): RoomStore {
       protocolVersion: "2025-11-25",
       capabilities: {
         tools: {},
-        resources: {},
+        resources: {
+          subscribe: true,
+        },
         prompts: {},
         completions: {},
       },

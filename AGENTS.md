@@ -16,12 +16,11 @@ mcp-app-room (`@mcp-app-room`) extends (`@modelcontextprotocol/ext-apps`), which
 - **Cross-instance interactions** - Tools can reference other instances in the same room safely via the user, without the implementation details leaking between them.
 
 ## IMPORTANT:
-
 - **MOST IMPORTANT:** Please do the right thing. It might hard, it might go against your goal, but please do the right thing. If you don't know what the right thing is, ask! I'm here to help, but I can't if you don't ask.
 - **IMPORTANT**: This library utilizes @modelcontextprotol libraries and is a feature built on top of it. We must stay in line with their system and tooling, we cannot deviate.
 - **IMPORTANT:** Refactor often! Don't be afraid to change code. In fact, that's what we want! Repositories bloat quickly, if you see an opportunity to refactor, do it now, because later will be 100x harder.
 - If you disagree with what the user asks, push back!
-- Run `npm run arch` to stream Mermaid diagrams (deps + types + callgraph) with no file writes. Use `--deps`, `--types`, or `--callgraph` to stream a single graph.
+- **IMPORTANT** Always run `npm run arch` as the first thing you do if you haven't yet. It will immediately help you understand the codebase.
 - Get todays date and time if you haven't today, because AI changes fast and looking at old documentation from 2025, when it's February 2026 (time of writing) is not okay, ever.
 - If you leave stale documentation, you're fired. (obviously not, we just care about the right thing and hope you do to)
 - No one cares if the build is green, that's a smoke test, it doesn't mean your code is good.

@@ -28,3 +28,14 @@ npm run roomd:cli -- resources-subscribe --room demo --instance inst-1 --uri fil
 When `--output pretty` is used and a request fails, `roomctl` prints
 `error [CODE]`, plus optional `hint` and `details` from roomd's typed error
 contract.
+
+`roomctl` also enriches JSON responses with a `body.suggestions` array:
+
+- `cmd`: placeholder-only follow-up command (`{{room}}`, `{{instance}}`, `{{server}}`, etc.)
+- `description`: brief explanation of why that command is the likely next step
+
+Config resolution:
+
+- `roomctl` reads `roomd.baseUrl` from `config/global.yaml` by default.
+- Override config path with `--config /path/to/global.yaml`.
+- Override URL directly with `--base-url http://host:port` (highest priority).

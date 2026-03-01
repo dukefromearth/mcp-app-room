@@ -35,15 +35,34 @@ npm install
 npm run start
 ```
 
+Global runtime defaults are loaded from:
+
+- `config/global.yaml`
+
 This starts:
 
 - Host: `http://localhost:8080`
 - Sandbox: `http://localhost:8081`
 - roomd: `http://localhost:8090`
 
+Security behavior is profile-driven via `config/global.yaml`:
+
+- `security.profile: local-dev` enables permissive local behavior
+- `security.profile: strict` enforces restrictive defaults
+
+`npm` scripts (`host:start`, `host:dev`, `roomd:start`, `roomd:dev`, `roomd:cli`) read `config/global.yaml` directly.
+Use explicit flags for overrides.
+
+To run roomd in strict mode locally:
+
+```bash
+npm run roomd:start:strict
+```
+
 Open:
 
-- `http://localhost:8080/?mode=room&roomd=http://localhost:8090&room=demo`
+- `http://localhost:8080/`
+- Debug-only query overrides are still available with `?debug=1` (for e2e and diagnostics).
 
 ## CLI
 
@@ -61,7 +80,8 @@ npm run roomd:cli -- layout --room demo --ops '[{"op":"swap","first":"inst-1","s
 ```
 
 Global flags:
-- `--base-url` (default `http://localhost:8090`, env `ROOMD_BASE_URL`)
+- `--config` (default: `config/global.yaml` via upward lookup)
+- `--base-url` (overrides `roomd.baseUrl` from config)
 - `--timeout` (default `10s`)
 - `--output pretty|json`
 

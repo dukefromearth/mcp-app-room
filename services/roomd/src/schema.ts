@@ -16,7 +16,16 @@ export const gridContainerSchema = z.object({
 });
 
 export const clientRootSchema = z.object({
-  uri: z.string().min(1),
+  uri: z
+    .string()
+    .min(1)
+    .refine((value) => {
+      try {
+        return new URL(value).protocol === "file:";
+      } catch {
+        return false;
+      }
+    }, "uri must be a valid file:// URI"),
   name: z.string().min(1).optional(),
   _meta: z.record(z.string(), z.unknown()).optional(),
 });

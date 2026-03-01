@@ -15,6 +15,8 @@ import {
 } from "./implementation";
 import styles from "./index.module.css";
 import { onThemeChange, type Theme } from "./theme";
+import { DevSidebar } from "./dev-sidebar/dev-sidebar";
+import { DEV_SIDEBAR_CONFIG } from "./dev-sidebar/default-config";
 
 interface RoomMount {
   instanceId: string;
@@ -28,12 +30,14 @@ interface RoomMount {
     description?: string;
     inputSchema: unknown;
     uiResourceUri?: string;
+    visibility?: Array<"model" | "app">;
   }>;
 }
 
 interface RoomInvocation {
   invocationId: string;
   instanceId: string;
+  toolName?: string;
   input: Record<string, unknown>;
   status: "running" | "completed" | "failed";
   result?: unknown;
@@ -148,37 +152,48 @@ export function RoomCanvasHost({ config }: RoomCanvasHostProps) {
   const orderedMounts = state.order
     .map((instanceId) => mountsById.get(instanceId))
     .filter((mount): mount is RoomMount => !!mount);
+  const devSidebarEnabled = isDevSidebarEnabled();
 
   return (
     <div className={styles.roomHostRoot}>
       <div className={styles.roomStatus}>
         Room <code>{state.roomId}</code> revision <code>{state.revision}</code> status <code>{connectionState}</code>
       </div>
-      <div className={styles.roomCanvasGrid} data-testid="room-canvas">
-        {orderedMounts.map((mount) => (
-          <div
-            key={mount.instanceId}
-            data-instance-id={mount.instanceId}
-            className={`${styles.roomTile} ${mount.visible ? "" : styles.roomTileHidden}`.trim()}
-            style={{
-              gridColumn: `${mount.container.x + 1} / span ${mount.container.w}`,
-              gridRow: `${mount.container.y + 1} / span ${mount.container.h}`,
-            }}
-          >
-            <div className={styles.roomTileHeader}>
-              <span>
-                {mount.instanceId} <strong>{mount.uiResourceUri || "app instance"}</strong>
-              </span>
-              <span className={styles.roomTileServer}>{mount.server}</span>
+      <div className={styles.roomLayout}>
+        <div className={styles.roomCanvasGrid} data-testid="room-canvas">
+          {orderedMounts.map((mount) => (
+            <div
+              key={mount.instanceId}
+              data-instance-id={mount.instanceId}
+              className={`${styles.roomTile} ${mount.visible ? "" : styles.roomTileHidden}`.trim()}
+              style={{
+                gridColumn: `${mount.container.x + 1} / span ${mount.container.w}`,
+                gridRow: `${mount.container.y + 1} / span ${mount.container.h}`,
+              }}
+            >
+              <div className={styles.roomTileHeader}>
+                <span>
+                  {mount.instanceId} <strong>{mount.uiResourceUri || "app instance"}</strong>
+                </span>
+                <span className={styles.roomTileServer}>{mount.server}</span>
+              </div>
+              <RoomAppInstance
+                roomdUrl={config.roomdUrl}
+                roomId={state.roomId}
+                mount={mount}
+                invocation={latestInvocationForInstance(state.invocations, mount)}
+              />
             </div>
-            <RoomAppInstance
-              roomdUrl={config.roomdUrl}
-              roomId={state.roomId}
-              mount={mount}
-              invocation={latestInvocationForInstance(state.invocations, mount.instanceId)}
-            />
-          </div>
-        ))}
+          ))}
+        </div>
+        {devSidebarEnabled && (
+          <DevSidebar
+            roomdUrl={config.roomdUrl}
+            roomId={state.roomId}
+            mounts={orderedMounts}
+            selectedInstanceId={state.selectedInstanceId}
+          />
+        )}
       </div>
     </div>
   );
@@ -402,10 +417,27 @@ async function waitForInitialized(appBridge: HostAppBridge): Promise<void> {
 
 function latestInvocationForInstance(
   invocations: RoomInvocation[],
-  instanceId: string,
+  mount: RoomMount,
 ): RoomInvocation | undefined {
+  const isAppOnlyTool = (toolName?: string): boolean => {
+    if (!toolName) {
+      return false;
+    }
+    const tool = mount.tools.find((candidate) => candidate.name === toolName);
+    if (!tool?.visibility || tool.visibility.length === 0) {
+      return false;
+    }
+    return !tool.visibility.includes("model");
+  };
+
   for (let i = invocations.length - 1; i >= 0; i--) {
-    if (invocations[i].instanceId === instanceId) {
+    if (invocations[i].instanceId !== mount.instanceId) {
+      continue;
+    }
+    if (isAppOnlyTool(invocations[i].toolName)) {
+      continue;
+    }
+    if (invocations[i].instanceId === mount.instanceId) {
       return invocations[i];
     }
   }
@@ -514,4 +546,22 @@ async function readErrorMessage(response: Response): Promise<string> {
   }
 
   return `${response.status} ${response.statusText}`;
+}
+
+function isDevSidebarEnabled(): boolean {
+  if (!DEV_SIDEBAR_CONFIG.features.visible) {
+    return false;
+  }
+
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const value = (params.get("devSidebar") ?? "").trim().toLowerCase();
+  if (value === "0" || value === "false" || value === "off") {
+    return false;
+  }
+
+  return true;
 }

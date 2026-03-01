@@ -135,6 +135,27 @@ describe("RoomStore core primitive parity", () => {
     });
   });
 
+  it("returns UNSUPPORTED_CAPABILITY for resources/subscribe when subscribe feature is not negotiated", async () => {
+    const store = newStore({
+      negotiatedSession: {
+        capabilities: {
+          tools: {},
+          resources: {},
+          prompts: {},
+          completions: {},
+        },
+      },
+    });
+    await mountInstance(store);
+
+    await expect(
+      store.subscribeInstanceResource("demo", "inst-1", { uri: "file://notes.md" }),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      code: "UNSUPPORTED_CAPABILITY",
+    });
+  });
+
   it("supports resources/unsubscribe passthrough", async () => {
     const store = newStore({
       unsubscribeResult: Promise.resolve({ ok: true }),
@@ -162,6 +183,29 @@ describe("RoomStore core primitive parity", () => {
 
     await expect(
       store.unsubscribeInstanceResource("demo", "inst-1", { uri: "file://notes.md" }),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      code: "UNSUPPORTED_CAPABILITY",
+    });
+  });
+
+  it("returns UNSUPPORTED_CAPABILITY for resources/unsubscribe when subscribe feature is not negotiated", async () => {
+    const store = newStore({
+      negotiatedSession: {
+        capabilities: {
+          tools: {},
+          resources: {},
+          prompts: {},
+          completions: {},
+        },
+      },
+    });
+    await mountInstance(store);
+
+    await expect(
+      store.unsubscribeInstanceResource("demo", "inst-1", {
+        uri: "file://notes.md",
+      }),
     ).rejects.toMatchObject({
       statusCode: 400,
       code: "UNSUPPORTED_CAPABILITY",

@@ -1,5 +1,6 @@
 import { RoomdAuthError } from "./errors";
 import type { HttpAuthStrategyConfig } from "./types";
+import { matchesHttpUrlPrefix } from "./http-url-prefix";
 
 export function resolveHttpAuthStrategy(
   serverUrl: string,
@@ -9,7 +10,7 @@ export function resolveHttpAuthStrategy(
   let match: HttpAuthStrategyConfig | undefined;
 
   for (const [prefix, strategy] of Object.entries(config)) {
-    if (!serverUrl.startsWith(prefix)) {
+    if (!matchesHttpUrlPrefix(serverUrl, prefix)) {
       continue;
     }
 

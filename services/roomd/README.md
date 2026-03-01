@@ -67,6 +67,11 @@ Remote HTTP defaults are hardened:
 - non-loopback HTTP targets are blocked unless `ROOMD_ALLOW_REMOTE_HTTP_SERVERS=true`.
 - when remote HTTP is enabled, target origin must be in `ROOMD_REMOTE_HTTP_ORIGIN_ALLOWLIST` (or `*`).
 
+Development convenience overrides:
+- `DANGEROUSLY_ALLOW_REMOTE_HTTP=true` enables remote HTTP and defaults an empty origin allowlist to `*`.
+- `DANGEROUSLY_ALLOW_STDIO=true` defaults an empty `ROOMD_STDIO_COMMAND_ALLOWLIST` to `*`.
+- If explicit allowlists are configured, they take precedence over dangerous defaults.
+
 Auth strategy is configured by server URL prefix via `ROOMD_HTTP_AUTH_CONFIG` JSON:
 
 ```json

@@ -1,0 +1,22 @@
+# Global runtime config for mcp-app-room.
+# This file is the canonical source for local runtime wiring.
+
+version: 1
+
+roomd:
+  baseUrl: "http://localhost:8090"
+
+host:
+  mode: "room"
+  roomId: "demo"
+  ports:
+    host: 8080
+    sandbox: 8081
+  browser:
+    remoteDebuggingPort: 9222
+  servers:
+    - "http://localhost:3001/mcp"
+
+security:
+  # strict | local-dev
+  profile: "local-dev"

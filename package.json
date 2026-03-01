@@ -9,9 +9,12 @@
   ],
   "scripts": {
     "start": "concurrently \"npm run roomd:start\" \"npm run host:start\"",
-    "host:start": "cross-env DANGEROUSLY_ALLOW_SANDBOX=true ROOMD_URL=http://localhost:8090 HOST_MODE=room npm run --workspace apps/host-web start",
-    "host:dev": "cross-env DANGEROUSLY_ALLOW_SANDBOX=true ROOMD_URL=http://localhost:8090 HOST_MODE=room npm run --workspace apps/host-web dev",
-    "roomd:start": "npm run --workspace services/roomd start",
+    "host:start": "npm run --workspace apps/host-web start",
+    "host:dev": "npm run --workspace apps/host-web dev",
+    "roomd:start": "node ./scripts/run-roomd.mjs start",
+    "roomd:start:strict": "node ./scripts/run-roomd.mjs start --profile strict",
+    "roomd:dev": "node ./scripts/run-roomd.mjs dev",
+    "roomd:dev:strict": "node ./scripts/run-roomd.mjs dev --profile strict",
     "roomd:cli": "go run ./tools/roomctl/cmd/roomctl",
     "repo:guard": "node tools/repo-guard/check.mjs",
     "repo:guard:strict": "node tools/repo-guard/check.mjs --strict",
@@ -27,7 +30,8 @@
     "conformance:tier1": "npm run conformance:run && npm run conformance:check -- --threshold 1.0",
     "conformance:tier2": "npm run conformance:run && npm run conformance:check -- --threshold 0.8",
     "docs:check": "node tools/docs/check-roomd-governance-docs.mjs",
-    "check:dev": "npm run repo:guard && npm run arch:lint",
+    "check:dev": "npm run repo:guard && npm run arch:lint && npm run dev-sidebar:check-contracts",
+    "dev-sidebar:check-contracts": "node tools/dev-sidebar/check-contract-drift.mjs",
     "arch:lint": "depcruise --config .dependency-cruiser.cjs --ignore-known .dependency-cruiser-known-violations.json apps services",
     "arch:lint:strict": "depcruise --config .dependency-cruiser.cjs apps services",
     "arch:baseline": "depcruise-baseline --config .dependency-cruiser.cjs apps services",
@@ -44,6 +48,7 @@
     "fast-glob": "^3.3.3",
     "playwright": "1.57.0",
     "ts-morph": "^27.0.2",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "yaml": "^2.8.2"
   }
 }

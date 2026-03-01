@@ -1,9 +1,10 @@
 import type { CommandEnvelope } from "./types";
 import { stableStringify } from "./hash";
-import { ensureServerCapability } from "./capabilities";
+import { ensureServerCapability, ensureServerCapabilityFeature } from "./capabilities";
 import { HttpError } from "./errors";
 import { normalizeServerTarget, parseServerDescriptor } from "./server-target";
 import { ClientCapabilityRegistry } from "./client-capabilities/registry";
+import { matchesHttpUrlPrefix } from "./http-url-prefix";
 import type {
   ClientRoot,
   CompletionCompleteParams,
@@ -301,6 +302,7 @@ export class RoomStore {
     instanceId: string,
     roots: ClientRoot[],
   ): Promise<InstanceClientCapabilitiesConfig> {
+    assertFileRootUris(roots);
     const mount = this.getInstanceMount(roomId, instanceId);
     const config = this.clientCapabilityRegistry.setRoots(roomId, mount.server, roots);
 
@@ -391,6 +393,21 @@ export class RoomStore {
     const room = this.requireRoom(roomId);
     const mount = this.requireMount(room, instanceId);
     ensureServerCapability(mount.session, "tools", "tools/call");
+    const tool = mount.tools.find((candidate) => candidate.name === name);
+    if (tool && !tool.visibility?.includes("app")) {
+      throw new HttpError(
+        403,
+        "INVALID_COMMAND",
+        `Tool is not callable by app visibility policy: ${name}`,
+        {
+          details: {
+            tool: name,
+            visibility: tool.visibility,
+          },
+          hint: "Only tools with _meta.ui.visibility including \"app\" can be called from app views.",
+        },
+      );
+    }
     const session = await this.getSession(roomId, mount.server);
     const invocation = this.createInvocationForTool(
       mount.instanceId,
@@ -513,7 +530,12 @@ export class RoomStore {
     params: ResourceSubscriptionParams,
   ): Promise<unknown> {
     const mount = this.getInstanceMount(roomId, instanceId);
-    ensureServerCapability(mount.session, "resources", "resources/subscribe");
+    ensureServerCapabilityFeature(
+      mount.session,
+      "resources",
+      "subscribe",
+      "resources/subscribe",
+    );
     const session = await this.getSession(roomId, mount.server);
     return session.subscribeResource(params);
   }
@@ -524,7 +546,12 @@ export class RoomStore {
     params: ResourceSubscriptionParams,
   ): Promise<unknown> {
     const mount = this.getInstanceMount(roomId, instanceId);
-    ensureServerCapability(mount.session, "resources", "resources/unsubscribe");
+    ensureServerCapabilityFeature(
+      mount.session,
+      "resources",
+      "subscribe",
+      "resources/unsubscribe",
+    );
     const session = await this.getSession(roomId, mount.server);
     return session.unsubscribeResource(params);
   }
@@ -706,11 +733,14 @@ export class RoomStore {
     }
 
     const normalizedServer = normalizeServerTarget(command.server);
-    this.clientCapabilityRegistry.configureForMount(
-      room.roomId,
-      normalizedServer,
-      command.clientCapabilities,
-    );
+    const hadSessionForServer = room.sessions.has(normalizedServer);
+    if (!hadSessionForServer) {
+      this.clientCapabilityRegistry.configureForMount(
+        room.roomId,
+        normalizedServer,
+        command.clientCapabilities,
+      );
+    }
 
     let inspection: ServerInspection;
     let session: McpSession;
@@ -720,42 +750,53 @@ export class RoomStore {
         normalizedServer,
       );
       session = await this.getSession(room.roomId, normalizedServer);
+      const selectedUiResourceUri = this.selectMountUiResourceUri(
+        command,
+        inspection,
+      );
+      if (hadSessionForServer) {
+        this.clientCapabilityRegistry.configureForMount(
+          room.roomId,
+          normalizedServer,
+          command.clientCapabilities,
+        );
+      }
+
+      const negotiated = cloneNegotiatedSession(session.getNegotiatedSession());
+      room.sessions.set(normalizedServer, cloneNegotiatedSession(negotiated));
+
+      const mount: RoomMount = {
+        instanceId: command.instanceId,
+        server: normalizedServer,
+        uiResourceUri: selectedUiResourceUri,
+        session: negotiated,
+        visible: true,
+        container: { ...command.container },
+        tools: inspection.tools.map((tool) => cloneMountTool(tool)),
+      };
+
+      room.mounts.set(mount.instanceId, mount);
+      room.order.push(mount.instanceId);
+      room.selectedInstanceId = mount.instanceId;
+
+      const state = this.commit(room, "mount");
+
+      return {
+        statusCode: 200,
+        response: {
+          ok: true,
+          revision: state.revision,
+          state,
+        },
+      };
     } catch (error) {
-      this.clientCapabilityRegistry.clear(room.roomId, normalizedServer);
+      if (!hadSessionForServer) {
+        room.sessions.delete(normalizedServer);
+        this.clientCapabilityRegistry.clear(room.roomId, normalizedServer);
+        await this.sessionFactory.releaseSession(room.roomId, normalizedServer);
+      }
       throw error;
     }
-
-    const negotiated = cloneNegotiatedSession(session.getNegotiatedSession());
-    room.sessions.set(normalizedServer, cloneNegotiatedSession(negotiated));
-    const selectedUiResourceUri = this.selectMountUiResourceUri(
-      command,
-      inspection,
-    );
-
-    const mount: RoomMount = {
-      instanceId: command.instanceId,
-      server: normalizedServer,
-      uiResourceUri: selectedUiResourceUri,
-      session: negotiated,
-      visible: true,
-      container: { ...command.container },
-      tools: inspection.tools.map((tool) => cloneMountTool(tool)),
-    };
-
-    room.mounts.set(mount.instanceId, mount);
-    room.order.push(mount.instanceId);
-    room.selectedInstanceId = mount.instanceId;
-
-    const state = this.commit(room, "mount");
-
-    return {
-      statusCode: 200,
-      response: {
-        ok: true,
-        revision: state.revision,
-        state,
-      },
-    };
   }
 
   private handleVisibility(
@@ -1293,7 +1334,7 @@ export class RoomStore {
     if (descriptor.kind === "http") {
       if (this.serverAllowlist.length > 0) {
         const allowedByPrefix = this.serverAllowlist.some((prefix) =>
-          descriptor.url.startsWith(prefix),
+          matchesHttpUrlPrefix(descriptor.url, prefix),
         );
 
         if (!allowedByPrefix) {
@@ -1445,12 +1486,14 @@ function parseToolsPage(payload: unknown): ParsedToolsPage {
         ? { type: "object", properties: {} }
         : cloneUnknown(tool.inputSchema);
     const uiResourceUri = extractToolUiResourceUri(tool);
+    const visibility = extractToolVisibility(tool);
 
     tools.push({
       name,
       ...(title ? { title } : {}),
       ...(description ? { description } : {}),
       inputSchema,
+      visibility,
       ...(uiResourceUri ? { uiResourceUri } : {}),
     });
   }
@@ -1553,9 +1596,37 @@ function extractToolUiResourceUri(tool: Record<string, unknown>): string | undef
   return undefined;
 }
 
+function extractToolVisibility(tool: Record<string, unknown>): Array<"model" | "app"> {
+  const meta = asRecord(tool._meta);
+  const rawVisibility = asRecord(meta?.ui)?.visibility;
+  return normalizeToolVisibility(rawVisibility);
+}
+
+function normalizeToolVisibility(
+  rawVisibility: unknown,
+): Array<"model" | "app"> {
+  if (!Array.isArray(rawVisibility)) {
+    return ["model", "app"];
+  }
+
+  const normalized = new Set<"model" | "app">();
+  for (const value of rawVisibility) {
+    if (value === "model" || value === "app") {
+      normalized.add(value);
+    }
+  }
+
+  if (normalized.size === 0) {
+    // GOTCHA: invalid visibility metadata should degrade to default host behavior.
+    return ["model", "app"];
+  }
+  return [...normalized];
+}
+
 function cloneMountTool(tool: RoomMountTool): RoomMountTool {
   return {
     ...tool,
+    ...(tool.visibility ? { visibility: [...tool.visibility] } : {}),
     inputSchema: cloneUnknown(tool.inputSchema),
   };
 }
@@ -1576,5 +1647,31 @@ function cloneUnknown<T>(value: T): T {
     return structuredClone(value);
   } catch {
     return value;
+  }
+}
+
+function assertFileRootUris(roots: ClientRoot[]): void {
+  for (const root of roots) {
+    if (isFileUri(root.uri)) {
+      continue;
+    }
+    throw new HttpError(
+      400,
+      "INVALID_PAYLOAD",
+      `Root URI must be a file:// URI: ${root.uri}`,
+      {
+        details: {
+          uri: root.uri,
+        },
+      },
+    );
+  }
+}
+
+function isFileUri(value: string): boolean {
+  try {
+    return new URL(value).protocol === "file:";
+  } catch {
+    return false;
   }
 }

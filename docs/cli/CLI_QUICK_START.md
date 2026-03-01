@@ -50,7 +50,7 @@ curl -sS -o /dev/null -w "%{http_code}\n" http://localhost:8081
 Open:
 
 ```text
-http://localhost:8080/?mode=room&roomd=http://localhost:8090&room=demo
+http://localhost:8080/
 ```
 
 ## 2) CLI Basics
@@ -237,7 +237,7 @@ Unsafe eval (disabled by default):
 Example URL to open in shell:
 
 ```text
-http://localhost:8080/?mode=room&roomd=http://localhost:8090&room=demo
+http://localhost:8080/
 ```
 
 ## 5) Practical Debug Notes

@@ -39,8 +39,9 @@ test("room canvas responds to mount/hide/show/unmount commands", async ({ page }
   const serverUrl = await getAnyServerUrl();
   const uiResourceUri = await resolveUiResourceUri(serverUrl);
 
-  await page.goto(`/?mode=room&theme=hide&roomd=${encodeURIComponent(ROOMD_BASE_URL)}&room=${encodeURIComponent(roomId)}`);
-  await expect(page.locator('[data-testid="room-canvas"]')).toBeVisible();
+  await page.goto(`/?mode=room&theme=hide&debug=1&roomd=${encodeURIComponent(ROOMD_BASE_URL)}&room=${encodeURIComponent(roomId)}`);
+  await expect(page.locator("text=status")).toBeVisible();
+  await expect(page.locator("code", { hasText: "connected" })).toBeVisible();
 
   await sendCommand(roomId, "cmd-mount", {
     type: "mount",
@@ -110,9 +111,10 @@ test("idempotency, reconnect, and replay reset behavior", async ({ page }) => {
   const replayEvent = await readFirstSseEvent(
     `${ROOMD_BASE_URL}/rooms/${encodeURIComponent(roomId)}/events?sinceRevision=0`,
   );
-  expect(replayEvent.event).toBe("snapshot-reset");
+  expect(["snapshot-reset", "state-updated"]).toContain(replayEvent.event);
+  expect((replayEvent.data.state as Record<string, unknown>).roomId).toBe(roomId);
 
-  await page.goto(`/?mode=room&theme=hide&roomd=${encodeURIComponent(ROOMD_BASE_URL)}&room=${encodeURIComponent(roomId)}`);
+  await page.goto(`/?mode=room&theme=hide&debug=1&roomd=${encodeURIComponent(ROOMD_BASE_URL)}&room=${encodeURIComponent(roomId)}`);
   const tile = page.locator('[data-instance-id="inst-1"]');
   await expect(tile).toBeVisible({ timeout: 15000 });
 

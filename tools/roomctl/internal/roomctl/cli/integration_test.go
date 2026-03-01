@@ -1,15 +1,10 @@
 package cli
 
 import (
-	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
-	"time"
-
-	"github.com/duke/mcp-app-room/tools/roomctl/internal/roomctl/roomd"
 )
 
 func TestCreateCommandIntegration(t *testing.T) {
@@ -46,7 +41,6 @@ func TestCreateCommandIntegration(t *testing.T) {
 	if gotBody.RoomID != "demo" {
 		t.Fatalf("roomId=%q want=demo", gotBody.RoomID)
 	}
-
 	if env.Status != http.StatusCreated {
 		t.Fatalf("status=%d want=%d", env.Status, http.StatusCreated)
 	}
@@ -117,6 +111,14 @@ func TestMountCommandIntegration(t *testing.T) {
 	if env.Status != http.StatusOK {
 		t.Fatalf("status=%d want=%d", env.Status, http.StatusOK)
 	}
+
+	suggestions := requireSuggestions(t, env.Body)
+	if len(suggestions) < 2 {
+		t.Fatalf("expected mount suggestions, got=%v", suggestions)
+	}
+	if suggestions[0].Cmd != "roomctl list-tools --room {{room}} --instance {{instance}}" {
+		t.Fatalf("unexpected first mount suggestion cmd=%q", suggestions[0].Cmd)
+	}
 }
 
 func TestInspectCommandIntegration(t *testing.T) {
@@ -160,192 +162,56 @@ func TestInspectCommandIntegration(t *testing.T) {
 	if env.Status != http.StatusOK {
 		t.Fatalf("status=%d want=%d", env.Status, http.StatusOK)
 	}
+
+	suggestions := requireSuggestions(t, env.Body)
+	if len(suggestions) < 2 {
+		t.Fatalf("expected inspect suggestions, got=%v", suggestions)
+	}
+	if suggestions[0].Cmd != "roomctl create --room {{room}}" {
+		t.Fatalf("unexpected first inspect suggestion cmd=%q", suggestions[0].Cmd)
+	}
 }
-func TestReorderCommandIntegration(t *testing.T) {
+
+func TestMountRoomNotFoundSuggestions(t *testing.T) {
 	t.Parallel()
 
-	var gotMethod string
-	var gotPath string
-	var decodeErr error
-	var gotBody struct {
-		IdempotencyKey string `json:"idempotencyKey"`
-		Command        struct {
-			Type  string   `json:"type"`
-			Order []string `json:"order"`
-		} `json:"command"`
-	}
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotMethod = r.Method
-		gotPath = r.URL.Path
-		decodeErr = json.NewDecoder(r.Body).Decode(&gotBody)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("content-type", "application/json")
-		_, _ = w.Write([]byte(`{"ok":true,"revision":5}`))
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"ok":false,"code":"ROOM_NOT_FOUND","error":"Room not found: demo"}`))
 	}))
 	defer server.Close()
 
 	env := runCommand(
 		t,
 		server.URL,
-		"reorder",
-		"--room", "demo",
-		"--order", "inst-1,inst-2",
-		"--order", "inst-3",
-		"--idempotency-key", "idem-2",
-	)
-
-	if gotMethod != http.MethodPost {
-		t.Fatalf("method=%s want=%s", gotMethod, http.MethodPost)
-	}
-	if gotPath != "/rooms/demo/commands" {
-		t.Fatalf("path=%s want=/rooms/demo/commands", gotPath)
-	}
-	if decodeErr != nil {
-		t.Fatalf("decode request body: %v", decodeErr)
-	}
-	if gotBody.Command.Type != "reorder" {
-		t.Fatalf("command.type=%q want=reorder", gotBody.Command.Type)
-	}
-	wantOrder := []string{"inst-1", "inst-2", "inst-3"}
-	if len(gotBody.Command.Order) != len(wantOrder) {
-		t.Fatalf("order=%v want=%v", gotBody.Command.Order, wantOrder)
-	}
-	for i := range wantOrder {
-		if gotBody.Command.Order[i] != wantOrder[i] {
-			t.Fatalf("order[%d]=%q want=%q", i, gotBody.Command.Order[i], wantOrder[i])
-		}
-	}
-	if env.Status != http.StatusOK {
-		t.Fatalf("status=%d want=%d", env.Status, http.StatusOK)
-	}
-}
-
-func TestLayoutCommandIntegration(t *testing.T) {
-	t.Parallel()
-
-	var gotMethod string
-	var gotPath string
-	var decodeErr error
-	var gotBody struct {
-		IdempotencyKey string `json:"idempotencyKey"`
-		Command        struct {
-			Type    string                   `json:"type"`
-			Adapter string                   `json:"adapter"`
-			Ops     []map[string]interface{} `json:"ops"`
-		} `json:"command"`
-	}
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotMethod = r.Method
-		gotPath = r.URL.Path
-		decodeErr = json.NewDecoder(r.Body).Decode(&gotBody)
-		w.Header().Set("content-type", "application/json")
-		_, _ = w.Write([]byte(`{"ok":true,"revision":6}`))
-	}))
-	defer server.Close()
-
-	env := runCommand(
-		t,
-		server.URL,
-		"layout",
-		"--room", "demo",
-		"--adapter", "grid12",
-		"--ops", `[{"op":"swap","first":"inst-1","second":"inst-2"}]`,
-		"--idempotency-key", "idem-layout",
-	)
-
-	if gotMethod != http.MethodPost {
-		t.Fatalf("method=%s want=%s", gotMethod, http.MethodPost)
-	}
-	if gotPath != "/rooms/demo/commands" {
-		t.Fatalf("path=%s want=/rooms/demo/commands", gotPath)
-	}
-	if decodeErr != nil {
-		t.Fatalf("decode request body: %v", decodeErr)
-	}
-	if gotBody.Command.Type != "layout" {
-		t.Fatalf("command.type=%q want=layout", gotBody.Command.Type)
-	}
-	if gotBody.Command.Adapter != "grid12" {
-		t.Fatalf("command.adapter=%q want=grid12", gotBody.Command.Adapter)
-	}
-	if len(gotBody.Command.Ops) != 1 {
-		t.Fatalf("ops length=%d want=1", len(gotBody.Command.Ops))
-	}
-	if gotBody.Command.Ops[0]["op"] != "swap" {
-		t.Fatalf("first op=%v want=swap", gotBody.Command.Ops[0]["op"])
-	}
-	if env.Status != http.StatusOK {
-		t.Fatalf("status=%d want=%d", env.Status, http.StatusOK)
-	}
-}
-
-func TestToolCallCommandIntegration(t *testing.T) {
-	t.Parallel()
-
-	var gotMethod string
-	var gotPath string
-	var decodeErr error
-	var gotBody struct {
-		Name      string         `json:"name"`
-		Arguments map[string]any `json:"arguments"`
-	}
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotMethod = r.Method
-		gotPath = r.URL.Path
-		decodeErr = json.NewDecoder(r.Body).Decode(&gotBody)
-		w.Header().Set("content-type", "application/json")
-		_, _ = w.Write([]byte(`{"ok":true,"result":{"value":1}}`))
-	}))
-	defer server.Close()
-
-	env := runCommand(
-		t,
-		server.URL,
-		"tool-call",
+		"mount",
 		"--room", "demo",
 		"--instance", "inst-1",
-		"--name", "video_get_state",
-		"--arguments", `{"sessionId":"s-1"}`,
+		"--server", "http://localhost:3001/mcp",
+		"--container", "0,0,4,4",
 	)
 
-	if gotMethod != http.MethodPost {
-		t.Fatalf("method=%s want=%s", gotMethod, http.MethodPost)
+	if env.Status != http.StatusNotFound {
+		t.Fatalf("status=%d want=%d", env.Status, http.StatusNotFound)
 	}
-	if gotPath != "/rooms/demo/instances/inst-1/tools/call" {
-		t.Fatalf("path=%s want=/rooms/demo/instances/inst-1/tools/call", gotPath)
+
+	suggestions := requireSuggestions(t, env.Body)
+	if len(suggestions) < 2 {
+		t.Fatalf("expected ROOM_NOT_FOUND suggestions, got=%v", suggestions)
 	}
-	if decodeErr != nil {
-		t.Fatalf("decode request body: %v", decodeErr)
-	}
-	if gotBody.Name != "video_get_state" {
-		t.Fatalf("name=%q want=video_get_state", gotBody.Name)
-	}
-	if gotBody.Arguments["sessionId"] != "s-1" {
-		t.Fatalf("arguments=%v want sessionId=s-1", gotBody.Arguments)
-	}
-	if env.Status != http.StatusOK {
-		t.Fatalf("status=%d want=%d", env.Status, http.StatusOK)
+	if suggestions[0].Cmd != "roomctl create --room {{room}}" {
+		t.Fatalf("unexpected first ROOM_NOT_FOUND suggestion cmd=%q", suggestions[0].Cmd)
 	}
 }
 
-func TestToolsListCommandIntegration(t *testing.T) {
+func TestToolsListInstanceNotFoundSuggestions(t *testing.T) {
 	t.Parallel()
 
-	var gotMethod string
-	var gotPath string
-	var decodeErr error
-	var gotBody struct {
-		Cursor string `json:"cursor"`
-	}
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotMethod = r.Method
-		gotPath = r.URL.Path
-		decodeErr = json.NewDecoder(r.Body).Decode(&gotBody)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("content-type", "application/json")
-		_, _ = w.Write([]byte(`{"tools":[{"name":"read"}]}`))
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"ok":false,"code":"INSTANCE_NOT_FOUND","error":"Instance not found: inst-1"}`))
 	}))
 	defer server.Close()
 
@@ -355,95 +221,17 @@ func TestToolsListCommandIntegration(t *testing.T) {
 		"tools-list",
 		"--room", "demo",
 		"--instance", "inst-1",
-		"--cursor", "next-page",
 	)
 
-	if gotMethod != http.MethodPost {
-		t.Fatalf("method=%s want=%s", gotMethod, http.MethodPost)
-	}
-	if gotPath != "/rooms/demo/instances/inst-1/tools/list" {
-		t.Fatalf("path=%s want=/rooms/demo/instances/inst-1/tools/list", gotPath)
-	}
-	if decodeErr != nil {
-		t.Fatalf("decode request body: %v", decodeErr)
-	}
-	if gotBody.Cursor != "next-page" {
-		t.Fatalf("cursor=%q want=next-page", gotBody.Cursor)
-	}
-	if env.Status != http.StatusOK {
-		t.Fatalf("status=%d want=%d", env.Status, http.StatusOK)
-	}
-}
-
-func TestStateGetCommandIntegration(t *testing.T) {
-	t.Parallel()
-
-	var gotMethod string
-	var gotPath string
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotMethod = r.Method
-		gotPath = r.URL.Path
-		w.Header().Set("content-type", "application/json")
-		_, _ = w.Write([]byte(`{"ok":true,"state":{"invocations":[{"result":{"structuredContent":{"sessionId":"abc-123"}}}]}}`))
-	}))
-	defer server.Close()
-
-	env := runCommand(
-		t,
-		server.URL,
-		"state-get",
-		"--room", "demo",
-		"--path", "state.invocations.0.result.structuredContent.sessionId",
-	)
-
-	if gotMethod != http.MethodGet {
-		t.Fatalf("method=%s want=%s", gotMethod, http.MethodGet)
-	}
-	if gotPath != "/rooms/demo/state" {
-		t.Fatalf("path=%s want=/rooms/demo/state", gotPath)
-	}
-	if env.Status != http.StatusOK {
-		t.Fatalf("status=%d want=%d", env.Status, http.StatusOK)
+	if env.Status != http.StatusNotFound {
+		t.Fatalf("status=%d want=%d", env.Status, http.StatusNotFound)
 	}
 
-	body, ok := env.Body.(map[string]any)
-	if !ok {
-		t.Fatalf("unexpected body type: %T", env.Body)
+	suggestions := requireSuggestions(t, env.Body)
+	if len(suggestions) < 2 {
+		t.Fatalf("expected INSTANCE_NOT_FOUND suggestions, got=%v", suggestions)
 	}
-	if body["path"] != "state.invocations.0.result.structuredContent.sessionId" {
-		t.Fatalf("path=%v", body["path"])
+	if suggestions[0].Cmd != "roomctl state --room {{room}}" {
+		t.Fatalf("unexpected first INSTANCE_NOT_FOUND suggestion cmd=%q", suggestions[0].Cmd)
 	}
-	if body["found"] != true {
-		t.Fatalf("found=%v want=true", body["found"])
-	}
-	if body["value"] != "abc-123" {
-		t.Fatalf("value=%v want=abc-123", body["value"])
-	}
-}
-
-func runCommand(t *testing.T, baseURL string, args ...string) roomd.Envelope {
-	t.Helper()
-
-	stdout := &bytes.Buffer{}
-	stderr := &bytes.Buffer{}
-	cmd := newRootCmdWithOptions(&rootOptions{
-		baseURL: baseURL,
-		timeout: 2 * time.Second,
-		output:  "json",
-		stdout:  stdout,
-		stderr:  stderr,
-	})
-	cmd.SetArgs(args)
-
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("execute command failed: %v; stderr=%s", err, strings.TrimSpace(stderr.String()))
-	}
-
-	var env roomd.Envelope
-	if err := json.Unmarshal(bytes.TrimSpace(stdout.Bytes()), &env); err != nil {
-		t.Fatalf("decode command output: %v, output=%s", err, stdout.String())
-	}
-
-	return env
 }

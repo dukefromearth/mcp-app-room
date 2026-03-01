@@ -1,6 +1,7 @@
 import http from "node:http";
 import { describe, expect, it } from "vitest";
 import { RealMcpSessionFactory } from "../src/mcp";
+import { resolveHttpAuthStrategy } from "../src/mcp-auth";
 import { RoomStore } from "../src/store";
 
 type AuthRequestHandler = (
@@ -9,6 +10,38 @@ type AuthRequestHandler = (
 ) => void;
 
 describe("HTTP auth strategy handling", () => {
+  it("matches auth strategy by URL boundary instead of raw prefix only", () => {
+    const strategy = resolveHttpAuthStrategy("https://api.example.com/v1/mcp", {
+      "https://api.example.com": {
+        type: "bearer",
+        token: "base-token",
+      },
+      "https://api.example.com/v1/": {
+        type: "bearer",
+        token: "v1-token",
+      },
+    });
+
+    expect(strategy).toMatchObject({
+      type: "bearer",
+      token: "v1-token",
+    });
+  });
+
+  it("does not match auth strategy for lookalike hostnames", () => {
+    const strategy = resolveHttpAuthStrategy(
+      "https://api.example.com.evil/mcp",
+      {
+        "https://api.example.com": {
+          type: "bearer",
+          token: "sensitive-token",
+        },
+      },
+    );
+
+    expect(strategy).toEqual({ type: "none" });
+  });
+
   it("returns AUTH_REQUIRED when auth is required and no strategy is configured", async () => {
     await withAuthServer((_, res) => {
       res.writeHead(401, { "content-type": "application/json" });

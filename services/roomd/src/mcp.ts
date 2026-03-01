@@ -38,6 +38,7 @@ import { buildNegotiatedSession, readProtocolVersion } from "./mcp-session-metad
 import { RealMcpSession } from "./mcp-session";
 
 const IMPLEMENTATION = { name: "roomd", version: "0.1.0" };
+const UI_EXTENSION_KEY = "io.modelcontextprotocol/ui";
 
 interface ConnectedClient {
   client: Client;
@@ -341,7 +342,18 @@ function readAdvertisedCapabilities(
   roomId: string,
   serverKey: string,
 ): Record<string, unknown> {
-  return capabilityRegistry?.getAdvertisedClientCapabilities(roomId, serverKey) ?? {};
+  const base =
+    capabilityRegistry?.getAdvertisedClientCapabilities(roomId, serverKey) ?? {};
+  const currentExtensions = asRecord(base.extensions) ?? {};
+  return {
+    ...base,
+    extensions: {
+      ...currentExtensions,
+      [UI_EXTENSION_KEY]: {
+        mimeTypes: [RESOURCE_MIME_TYPE],
+      },
+    },
+  };
 }
 
 function createConfiguredClient(
@@ -386,4 +398,11 @@ function safeParseUiMeta(rawMeta: unknown): {
     success: false,
     errorMessage: parsed.error.message,
   };
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  return value as Record<string, unknown>;
 }

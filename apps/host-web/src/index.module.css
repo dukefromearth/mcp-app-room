@@ -284,9 +284,18 @@
   padding: 1rem;
 }
 
+.roomLayout {
+  max-width: 1600px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 1rem;
+  align-items: start;
+}
+
 .roomStatus {
   margin: 0 auto 1rem;
-  max-width: 1200px;
+  max-width: 1600px;
   padding: 0.75rem 1rem;
   border: 1px solid var(--color-border);
   border-radius: 6px;
@@ -294,8 +303,6 @@
 }
 
 .roomCanvasGrid {
-  max-width: 1200px;
-  margin: 0 auto;
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
   grid-auto-rows: 90px;
@@ -355,4 +362,154 @@
   white-space: nowrap;
   text-overflow: ellipsis;
   overflow: hidden;
+}
+
+.devSidebar {
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-bg-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  position: sticky;
+  top: 0.75rem;
+  max-height: calc(100vh - 1.5rem);
+  overflow: auto;
+}
+
+.devSidebarHeader h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.devSidebarHeader p {
+  margin: 0.25rem 0 0;
+  color: var(--color-text-secondary);
+  font-size: 0.8rem;
+}
+
+.devSection {
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 0.6rem;
+  background: var(--color-bg);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.devSection h3 {
+  margin: 0;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-secondary);
+}
+
+.devSection label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+}
+
+.devSection input,
+.devSection select,
+.devSection textarea,
+.devSection button {
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg-secondary);
+  color: var(--color-text);
+  padding: 0.4rem 0.5rem;
+  font-size: 0.82rem;
+}
+
+.devSection button {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.devSection button:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.devTabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.3rem;
+}
+
+.devTab {
+  text-transform: capitalize;
+}
+
+.devTabActive {
+  text-transform: capitalize;
+  border-color: var(--color-primary);
+  box-shadow: inset 0 0 0 1px var(--color-primary);
+}
+
+.devToggle {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 0.5rem !important;
+}
+
+.devTextarea {
+  min-height: 110px;
+  resize: vertical;
+  font-family: monospace;
+}
+
+.devFormFields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.devField {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.devField small {
+  color: var(--color-text-secondary);
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.devError {
+  margin: 0;
+  color: light-dark(#dc2626, #f87171);
+}
+
+.devPre {
+  margin: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg-secondary);
+  color: var(--color-text);
+  font-family: monospace;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  max-height: 220px;
+  overflow: auto;
+  padding: 0.5rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+@media (max-width: 1200px) {
+  .roomLayout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .devSidebar {
+    position: static;
+    max-height: none;
+  }
 }

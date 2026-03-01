@@ -20,6 +20,10 @@ import { RoomStore } from "./store";
 import { ClientCapabilityRegistry } from "./client-capabilities/registry";
 import { registerInstanceRoutes } from "./server-instance-routes";
 import type { HttpAuthStrategyConfig } from "./types";
+import {
+  resolveRemoteHttpOriginAllowlist,
+  resolveStdioAllowlist,
+} from "./dev-security-overrides";
 
 const port = Number.parseInt(process.env.ROOMD_PORT ?? "8090", 10);
 const eventWindowSize = Number.parseInt(
@@ -35,14 +39,28 @@ const idempotencyKeyLimit = Number.parseInt(
   10,
 );
 const serverAllowlist = parseCommaList(process.env.ROOMD_SERVER_ALLOWLIST);
-const stdioCommandAllowlist = parseCommaList(
+const dangerouslyAllowStdio = parseBoolean(
+  process.env.DANGEROUSLY_ALLOW_STDIO,
+);
+const configuredStdioCommandAllowlist = parseCommaList(
   process.env.ROOMD_STDIO_COMMAND_ALLOWLIST,
 );
-const allowRemoteHttpServers = parseBoolean(
+const stdioCommandAllowlist = resolveStdioAllowlist(
+  configuredStdioCommandAllowlist,
+  dangerouslyAllowStdio,
+);
+const dangerouslyAllowRemoteHttp = parseBoolean(
+  process.env.DANGEROUSLY_ALLOW_REMOTE_HTTP,
+);
+const allowRemoteHttpServers = dangerouslyAllowRemoteHttp || parseBoolean(
   process.env.ROOMD_ALLOW_REMOTE_HTTP_SERVERS,
 );
-const remoteHttpOriginAllowlist = parseCommaList(
+const configuredRemoteHttpOriginAllowlist = parseCommaList(
   process.env.ROOMD_REMOTE_HTTP_ORIGIN_ALLOWLIST,
+);
+const remoteHttpOriginAllowlist = resolveRemoteHttpOriginAllowlist(
+  configuredRemoteHttpOriginAllowlist,
+  dangerouslyAllowRemoteHttp,
 );
 const httpAuthConfig = parseHttpAuthConfig(process.env.ROOMD_HTTP_AUTH_CONFIG);
 const clientCapabilityRegistry = new ClientCapabilityRegistry();
@@ -166,6 +184,16 @@ app.use((error: unknown, _req: express.Request, res: express.Response, _next: ex
 
 app.listen(port, () => {
   console.log(`[roomd] listening on http://localhost:${port}`);
+  if (dangerouslyAllowStdio) {
+    console.warn(
+      "[roomd] WARNING: DANGEROUSLY_ALLOW_STDIO enabled (defaulting empty stdio allowlist to *).",
+    );
+  }
+  if (dangerouslyAllowRemoteHttp) {
+    console.warn(
+      "[roomd] WARNING: DANGEROUSLY_ALLOW_REMOTE_HTTP enabled (remote HTTP + origin wildcard allowed when unset).",
+    );
+  }
   if (serverAllowlist.length > 0) {
     console.log(`[roomd] server allowlist: ${serverAllowlist.join(", ")}`);
   }

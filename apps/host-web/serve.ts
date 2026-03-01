@@ -13,28 +13,237 @@
 import express from "express";
 import cors from "cors";
 import { fileURLToPath } from "url";
-import { dirname, join } from "path";
+import { dirname, join, resolve } from "path";
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import type { McpUiResourceCsp } from "@modelcontextprotocol/ext-apps";
+import { parse as parseYaml } from "yaml";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const HOST_PORT = parseInt(process.env.HOST_PORT || "8080", 10);
-const SANDBOX_PORT = parseInt(process.env.SANDBOX_PORT || "8081", 10);
+type SecurityProfile = "strict" | "local-dev";
+
+interface RuntimeConfig {
+  configPath: string;
+  hostPort: number;
+  sandboxPort: number;
+  servers: string[];
+  roomdUrl: string;
+  roomId: string;
+  hostMode: string;
+  remoteDebuggingPort: number;
+  securityProfile: SecurityProfile;
+}
+
+interface CliOverrides {
+  configPath?: string;
+  hostPort?: number;
+  sandboxPort?: number;
+  roomdUrl?: string;
+  roomId?: string;
+  hostMode?: string;
+  remoteDebuggingPort?: number;
+  securityProfile?: SecurityProfile;
+}
+
+function asObject(value: unknown, path: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${path} must be an object`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function asNonEmptyString(
+  value: unknown,
+  path: string,
+  fallback?: string,
+): string {
+  if (typeof value === "string" && value.trim().length > 0) {
+    return value.trim();
+  }
+  if (fallback !== undefined) {
+    return fallback;
+  }
+  throw new Error(`${path} must be a non-empty string`);
+}
+
+function asInteger(
+  value: unknown,
+  path: string,
+  fallback?: number,
+): number {
+  if (typeof value === "number" && Number.isInteger(value)) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const parsed = Number.parseInt(value, 10);
+    if (Number.isInteger(parsed)) {
+      return parsed;
+    }
+  }
+  if (fallback !== undefined) {
+    return fallback;
+  }
+  throw new Error(`${path} must be an integer`);
+}
+
+function asStringArray(
+  value: unknown,
+  path: string,
+  fallback?: string[],
+): string[] {
+  if (!Array.isArray(value)) {
+    if (fallback) {
+      return fallback;
+    }
+    throw new Error(`${path} must be an array of strings`);
+  }
+
+  const normalized = value
+    .filter((entry) => typeof entry === "string")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+  if (normalized.length > 0) {
+    return normalized;
+  }
+  if (fallback) {
+    return fallback;
+  }
+  throw new Error(`${path} must include at least one string`);
+}
+
+function parseCliOverrides(argv: string[]): CliOverrides {
+  const overrides: CliOverrides = {};
+
+  for (let i = 0; i < argv.length; i++) {
+    const token = argv[i];
+    const next = argv[i + 1];
+    if (token === "--config") {
+      if (!next) {
+        throw new Error("--config requires a value");
+      }
+      overrides.configPath = resolve(process.cwd(), next);
+      i += 1;
+      continue;
+    }
+    if (token === "--host-port") {
+      overrides.hostPort = asInteger(next, "--host-port");
+      i += 1;
+      continue;
+    }
+    if (token === "--sandbox-port") {
+      overrides.sandboxPort = asInteger(next, "--sandbox-port");
+      i += 1;
+      continue;
+    }
+    if (token === "--roomd-url") {
+      overrides.roomdUrl = asNonEmptyString(next, "--roomd-url");
+      i += 1;
+      continue;
+    }
+    if (token === "--room-id") {
+      overrides.roomId = asNonEmptyString(next, "--room-id");
+      i += 1;
+      continue;
+    }
+    if (token === "--mode") {
+      overrides.hostMode = asNonEmptyString(next, "--mode");
+      i += 1;
+      continue;
+    }
+    if (token === "--browser-remote-debugging-port") {
+      overrides.remoteDebuggingPort = asInteger(
+        next,
+        "--browser-remote-debugging-port",
+      );
+      i += 1;
+      continue;
+    }
+    if (token === "--security-profile") {
+      const profile = asNonEmptyString(next, "--security-profile");
+      if (profile !== "strict" && profile !== "local-dev") {
+        throw new Error("--security-profile must be strict or local-dev");
+      }
+      overrides.securityProfile = profile;
+      i += 1;
+      continue;
+    }
+    throw new Error(`Unknown argument: ${token}`);
+  }
+
+  return overrides;
+}
+
+function loadRuntimeConfig(argv: string[]): RuntimeConfig {
+  const overrides = parseCliOverrides(argv);
+  const configPath = overrides.configPath
+    ?? (process.env.MCP_APP_ROOM_CONFIG
+      ? resolve(process.cwd(), process.env.MCP_APP_ROOM_CONFIG)
+      : resolve(__dirname, "..", "..", "config", "global.yaml"));
+
+  if (!existsSync(configPath)) {
+    throw new Error(`Global config not found at ${configPath}`);
+  }
+
+  let parsedYaml: unknown;
+  try {
+    parsedYaml = parseYaml(readFileSync(configPath, "utf8"));
+  } catch (error) {
+    throw new Error(
+      `Failed to parse ${configPath}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+
+  const root = asObject(parsedYaml, "config");
+  const roomd = asObject(root.roomd, "roomd");
+  const host = asObject(root.host, "host");
+  const hostPorts = asObject(host.ports, "host.ports");
+  const hostBrowser = asObject(host.browser ?? {}, "host.browser");
+  const security = asObject(root.security, "security");
+
+  const roomdBaseUrl = overrides.roomdUrl
+    ?? asNonEmptyString(roomd.baseUrl, "roomd.baseUrl");
+
+  const securityProfile = overrides.securityProfile
+    ?? asNonEmptyString(security.profile, "security.profile") as SecurityProfile;
+  if (securityProfile !== "strict" && securityProfile !== "local-dev") {
+    throw new Error("security.profile must be strict or local-dev");
+  }
+
+  return {
+    configPath,
+    hostPort: overrides.hostPort ?? asInteger(hostPorts.host, "host.ports.host"),
+    sandboxPort:
+      overrides.sandboxPort ?? asInteger(hostPorts.sandbox, "host.ports.sandbox"),
+    servers: asStringArray(host.servers, "host.servers", [
+      "http://localhost:3001/mcp",
+    ]),
+    roomdUrl: roomdBaseUrl,
+    roomId: overrides.roomId ?? asNonEmptyString(host.roomId, "host.roomId"),
+    hostMode: overrides.hostMode ?? asNonEmptyString(host.mode, "host.mode"),
+    remoteDebuggingPort: overrides.remoteDebuggingPort
+      ?? asInteger(
+        hostBrowser.remoteDebuggingPort,
+        "host.browser.remoteDebuggingPort",
+        9222,
+      ),
+    securityProfile,
+  };
+}
+
 const DIRECTORY = join(__dirname, "dist");
-const SERVERS: string[] = process.env.SERVERS
-  ? JSON.parse(process.env.SERVERS)
-  : ["http://localhost:3001/mcp"];
-const ROOMD_URL = process.env.ROOMD_URL || "http://localhost:8090";
-const ROOM_ID = process.env.ROOM_ID || "demo";
-const HOST_MODE = process.env.HOST_MODE || "room";
-const REMOTE_DEBUGGING_PORT = parseInt(
-  process.env.BROWSER_REMOTE_DEBUGGING_PORT || "9222",
-  10,
-);
+const runtimeConfig = loadRuntimeConfig(process.argv.slice(2));
+const HOST_PORT = runtimeConfig.hostPort;
+const SANDBOX_PORT = runtimeConfig.sandboxPort;
+const SERVERS = runtimeConfig.servers;
+const ROOMD_URL = runtimeConfig.roomdUrl;
+const ROOM_ID = runtimeConfig.roomId;
+const HOST_MODE = runtimeConfig.hostMode;
+const REMOTE_DEBUGGING_PORT = runtimeConfig.remoteDebuggingPort;
 
 /**
  * CSP mode used by the sandbox server.
@@ -83,7 +292,8 @@ const SANDBOX_CSP_PROFILES: Record<SandboxCspMode, SandboxCspProfile> = {
     styleSrc: ["'self'", "'unsafe-inline'"],
     imgSrc: ["'self'", "data:"],
     fontSrc: ["'self'"],
-    mediaSrc: ["'self'", "data:"],
+    // Allow object-URL media playback while keeping script/style locked down.
+    mediaSrc: ["'self'", "data:", "blob:"],
     connectSrc: {
       withoutMetadata: ["'none'"],
       withMetadata: ["'self'"],
@@ -122,10 +332,8 @@ const SANDBOX_CSP_PROFILES: Record<SandboxCspMode, SandboxCspProfile> = {
   },
 };
 
-const SANDBOX_CSP_MODE = resolveSandboxCspMode(
-  process.env.SANDBOX_CSP_MODE,
-  process.env.DANGEROUSLY_ALLOW_SANDBOX,
-);
+const SANDBOX_CSP_MODE: SandboxCspMode =
+  runtimeConfig.securityProfile === "local-dev" ? "dangerouslyAllow" : "strict";
 
 // ============ Host Server (port 8080) ============
 const hostApp = express();
@@ -241,32 +449,6 @@ function mergeSources(...groups: string[][]): string[] {
 }
 
 /**
- * Resolve sandbox mode from environment inputs.
- *
- * `DANGEROUSLY_ALLOW_SANDBOX=true` is a convenience override for fast local
- * prototyping. Otherwise `SANDBOX_CSP_MODE` can be set explicitly.
- *
- * @param modeValue - `SANDBOX_CSP_MODE` raw value.
- * @param dangerousFlag - `DANGEROUSLY_ALLOW_SANDBOX` raw value.
- * @returns Resolved mode.
- */
-function resolveSandboxCspMode(
-  modeValue: string | undefined,
-  dangerousFlag: string | undefined,
-): SandboxCspMode {
-  const dangerous = (dangerousFlag ?? "").trim().toLowerCase();
-  if (dangerous === "1" || dangerous === "true" || dangerous === "yes") {
-    return "dangerouslyAllow";
-  }
-
-  const mode = (modeValue ?? "").trim();
-  if (mode === "dangerouslyAllow") {
-    return "dangerouslyAllow";
-  }
-  return "strict";
-}
-
-/**
  * Build a spec-conformant CSP header for sandboxed MCP App rendering.
  *
  * Spec requirements implemented here:
@@ -354,6 +536,9 @@ hostApp.listen(HOST_PORT, (err) => {
     console.error("Error starting server:", err);
     process.exit(1);
   }
+  console.log(
+    `[Config] ${runtimeConfig.configPath} profile=${runtimeConfig.securityProfile} roomd=${ROOMD_URL}`,
+  );
   console.log(`Host server:    http://localhost:${HOST_PORT}`);
 });
 

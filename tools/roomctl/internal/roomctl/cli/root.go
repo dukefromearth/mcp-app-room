@@ -16,30 +16,38 @@ import (
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
+	roomctlconfig "github.com/duke/mcp-app-room/tools/roomctl/internal/roomctl/config"
 	"github.com/duke/mcp-app-room/tools/roomctl/internal/roomctl/parse"
 	"github.com/duke/mcp-app-room/tools/roomctl/internal/roomctl/roomd"
 )
 
 const (
-	defaultBaseURL = "http://localhost:8090"
 	defaultTimeout = 10 * time.Second
 )
 
 type rootOptions struct {
-	baseURL string
-	timeout time.Duration
-	output  string
-	stderr  io.Writer
-	stdout  io.Writer
+	configPath string
+	baseURL    string
+	timeout    time.Duration
+	output     string
+	stderr     io.Writer
+	stdout     io.Writer
+	command    string
+}
+
+type suggestion struct {
+	Cmd         string `json:"cmd"`
+	Description string `json:"description"`
 }
 
 func NewRootCmd() *cobra.Command {
 	return newRootCmdWithOptions(&rootOptions{
-		baseURL: envOrDefault("ROOMD_BASE_URL", defaultBaseURL),
-		timeout: defaultTimeout,
-		output:  "pretty",
-		stderr:  os.Stderr,
-		stdout:  os.Stdout,
+		configPath: "",
+		baseURL:    "",
+		timeout:    defaultTimeout,
+		output:     "pretty",
+		stderr:     os.Stderr,
+		stdout:     os.Stdout,
 	})
 }
 
@@ -56,7 +64,15 @@ func newRootCmdWithOptions(opts *rootOptions) *cobra.Command {
 		Short:         "roomd command-line client",
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
+		PersistentPreRunE: func(c *cobra.Command, _ []string) error {
+			opts.command = c.Name()
+			if strings.TrimSpace(opts.baseURL) == "" {
+				cfg, err := roomctlconfig.Load(opts.configPath)
+				if err != nil {
+					return fmt.Errorf("load config: %w", err)
+				}
+				opts.baseURL = cfg.Roomd.BaseURL
+			}
 			switch opts.output {
 			case "pretty", "json":
 				return nil
@@ -72,9 +88,78 @@ func newRootCmdWithOptions(opts *rootOptions) *cobra.Command {
 	cmd.SetErr(opts.stderr)
 	cmd.SetOut(opts.stdout)
 
-	cmd.PersistentFlags().StringVar(&opts.baseURL, "base-url", opts.baseURL, "roomd base URL (env: ROOMD_BASE_URL)")
+	cmd.PersistentFlags().StringVar(&opts.configPath, "config", opts.configPath, "Path to global YAML config (default: auto-discover config/global.yaml)")
+	cmd.PersistentFlags().StringVar(&opts.baseURL, "base-url", opts.baseURL, "roomd base URL (overrides config)")
 	cmd.PersistentFlags().DurationVar(&opts.timeout, "timeout", opts.timeout, "HTTP timeout (e.g. 5s, 30s)")
 	cmd.PersistentFlags().StringVarP(&opts.output, "output", "o", opts.output, "Output format: pretty|json")
+
+	defaultHelp := cmd.HelpFunc()
+	cmd.SetHelpFunc(func(c *cobra.Command, args []string) {
+		// Only the root help is "verbose by design"; subcommands keep standard Cobra help.
+		if c != cmd {
+			defaultHelp(c, args)
+			return
+		}
+
+		out := c.OutOrStdout()
+		baseURL := readStringFlag(c, "base-url")
+		configPath := readStringFlag(c, "config")
+		output := readStringFlag(c, "output")
+		timeout := readDurationFlag(c, "timeout")
+		if strings.TrimSpace(baseURL) == "" {
+			baseURL = "<from config>"
+		}
+		if strings.TrimSpace(configPath) == "" {
+			configPath = "<auto-discover: config/global.yaml>"
+		}
+
+		fmt.Fprintln(out, "WHERE YOU ARE")
+		fmt.Fprintln(out, "  - You are in the developer console (roomctl).")
+		fmt.Fprintf(out, "  - You are talking to roomd at: %s\n", baseURL)
+		fmt.Fprintf(out, "  - Config path: %s\n", configPath)
+		fmt.Fprintf(out, "  - Output mode: %s\n", output)
+		fmt.Fprintf(out, "  - Timeout: %s\n", timeout)
+		fmt.Fprintln(out, "  - The user lives in the browser host (host-web). You do not render UI here.")
+		fmt.Fprintln(out)
+
+		fmt.Fprintln(out, "WHY YOU'RE HERE")
+		fmt.Fprintln(out, "  - roomd is a runtime that mounts MCP servers into persistent rooms and proxies standardized MCP calls.")
+		fmt.Fprintln(out, "  - Your role is to operate room state (mount/unmount/layout/visibility) and invoke tools/resources/prompts through instances.")
+		fmt.Fprintln(out, "  - Instances may be UI-backed or headless; UI is optional, tools are not.")
+		fmt.Fprintln(out)
+
+		fmt.Fprintln(out, "MENTAL MODEL")
+		fmt.Fprintln(out, "  - room: persistent container ID (e.g. {{room}})")
+		fmt.Fprintln(out, "  - instance: stable mount ID inside a room (e.g. {{instance}})")
+		fmt.Fprintln(out, "  - server: upstream MCP endpoint (http(s)://.../mcp or stdio://...)")
+		fmt.Fprintln(out, "  - container: grid slot x,y,w,h (e.g. {{x}},{{y}},{{w}},{{h}})")
+		fmt.Fprintln(out, "  - inspect: discover tools + UI candidates before mount")
+		fmt.Fprintln(out, "  - state: source of truth for mounts, order, selection, and invocation history")
+		fmt.Fprintln(out)
+
+		fmt.Fprintln(out, "FAST PATH (IF YOU JUST APPEARED HERE)")
+		fmt.Fprintln(out, "  1. roomctl health")
+		fmt.Fprintln(out, "  2. roomctl inspect --server {{server}}")
+		fmt.Fprintln(out, "  3. roomctl create --room {{room}}")
+		fmt.Fprintln(out, "  4. roomctl mount --room {{room}} --instance {{instance}} --server {{server}} --container {{x}},{{y}},{{w}},{{h}} [--ui-resource-uri {{ui-resource-uri}}]")
+		fmt.Fprintln(out, "  5. roomctl list-tools --room {{room}} --instance {{instance}}")
+		fmt.Fprintln(out, "  6. roomctl tool-call --room {{room}} --instance {{instance}} --name {{tool}} --arguments {{arguments-json}}")
+		fmt.Fprintln(out, "  7. roomctl state --room {{room}}")
+		fmt.Fprintln(out)
+
+		fmt.Fprintln(out, "DEV OVERRIDES (LOCAL ONLY)")
+		fmt.Fprintln(out, "  - roomd enforces security policies (stdio allowlist, remote HTTP restrictions, auth).")
+		fmt.Fprintln(out, "  - For local iteration you can relax policies via DANGEROUSLY_ALLOW_* flags (never for production).")
+		fmt.Fprintln(out, "  - Common: DANGEROUSLY_ALLOW_STDIO, DANGEROUSLY_ALLOW_REMOTE_HTTP, DANGEROUSLY_ALLOW_SANDBOX (host-side)")
+		fmt.Fprintln(out)
+
+		fmt.Fprintln(out, "WHEN THINGS FAIL")
+		fmt.Fprintln(out, "  - roomctl prints typed error codes (e.g. error [UNSUPPORTED_CAPABILITY]) and may include hint/details.")
+		fmt.Fprintln(out, "  - JSON responses are enriched with body.suggestions[] = { cmd, description } using placeholders like {{room}}.")
+		fmt.Fprintln(out)
+
+		defaultHelp(c, args)
+	})
 
 	cmd.AddCommand(
 		newHealthCmd(opts),
@@ -103,6 +188,30 @@ func newRootCmdWithOptions(opts *rootOptions) *cobra.Command {
 	)
 
 	return cmd
+}
+
+func readStringFlag(cmd *cobra.Command, name string) string {
+	value, err := cmd.Flags().GetString(name)
+	if err == nil && strings.TrimSpace(value) != "" {
+		return strings.TrimSpace(value)
+	}
+	value, err = cmd.PersistentFlags().GetString(name)
+	if err == nil && strings.TrimSpace(value) != "" {
+		return strings.TrimSpace(value)
+	}
+	return ""
+}
+
+func readDurationFlag(cmd *cobra.Command, name string) time.Duration {
+	value, err := cmd.Flags().GetDuration(name)
+	if err == nil && value > 0 {
+		return value
+	}
+	value, err = cmd.PersistentFlags().GetDuration(name)
+	if err == nil && value > 0 {
+		return value
+	}
+	return 0
 }
 
 func newHealthCmd(opts *rootOptions) *cobra.Command {
@@ -241,14 +350,7 @@ func newMountCmd(opts *rootOptions) *cobra.Command {
 			}
 
 			return runWithClient(opts, func(ctx context.Context, client *roomd.Client) (roomd.Envelope, error) {
-				env, err := client.Command(ctx, roomID, resolveIdempotencyKey(idempotencyKey), command)
-				if err != nil {
-					return roomd.Envelope{}, err
-				}
-				if opts.output == "pretty" {
-					printMountCommandHints(opts.stderr, env)
-				}
-				return env, nil
+				return client.Command(ctx, roomID, resolveIdempotencyKey(idempotencyKey), command)
 			})
 		},
 	}
@@ -479,6 +581,7 @@ func newInstanceToolsListCmd(opts *rootOptions) *cobra.Command {
 			})
 		},
 	}
+	cmd.Aliases = []string{"list-tools"}
 
 	cmd.Flags().StringVar(&roomID, "room", "", "Room ID")
 	cmd.Flags().StringVar(&instanceID, "instance", "", "Mount instance ID")
@@ -734,40 +837,425 @@ func lookupByPath(root any, valuePath string) (any, bool) {
 	return current, true
 }
 
-func printMountCommandHints(out io.Writer, env roomd.Envelope) {
-	if env.Status < 400 {
-		return
-	}
-
+func enrichEnvelopeWithSuggestions(command string, env roomd.Envelope) roomd.Envelope {
 	body, ok := env.Body.(map[string]any)
 	if !ok {
-		return
+		return env
 	}
 
-	rawCommands, ok := body["exampleCommands"]
-	if !ok {
-		return
+	suggestions := suggestionsFor(command, env)
+	if len(suggestions) == 0 {
+		return env
 	}
 
-	commands, ok := rawCommands.([]any)
-	if !ok || len(commands) == 0 {
-		return
+	copied := make(map[string]any, len(body)+1)
+	for key, value := range body {
+		copied[key] = value
 	}
+	copied["suggestions"] = suggestions
+	env.Body = copied
+	return env
+}
 
-	errorCode, _ := body["code"].(string)
-	if strings.TrimSpace(errorCode) == "" {
-		_, _ = fmt.Fprintln(out, "mount command failed; suggested next commands:")
-	} else {
-		_, _ = fmt.Fprintf(out, "mount command failed (%s); suggested next commands:\n", errorCode)
-	}
+func suggestionsFor(command string, env roomd.Envelope) []suggestion {
+	code := envelopeErrorCode(env)
 
-	for _, entry := range commands {
-		commandText, ok := entry.(string)
-		if !ok || strings.TrimSpace(commandText) == "" {
-			continue
+	if code == "ROOM_EXISTS" {
+		return []suggestion{
+			{
+				Cmd:         "roomctl state --room {{room}}",
+				Description: "Use the existing room and inspect current state.",
+			},
+			{
+				Cmd:         "roomctl mount --room {{room}} --instance {{instance}} --server {{server}} --container {{x}},{{y}},{{w}},{{h}}",
+				Description: "Proceed by mounting an instance into the existing room.",
+			},
 		}
-		_, _ = fmt.Fprintf(out, "  %s\n", commandText)
 	}
+
+	if code == "ROOM_NOT_FOUND" {
+		return []suggestion{
+			{
+				Cmd:         "roomctl create --room {{room}}",
+				Description: "Create the room before running room-scoped commands.",
+			},
+			{
+				Cmd:         "roomctl mount --room {{room}} --instance {{instance}} --server {{server}} --container {{x}},{{y}},{{w}},{{h}}",
+				Description: "Retry mount after the room exists.",
+			},
+		}
+	}
+
+	if code == "INSTANCE_EXISTS" {
+		return []suggestion{
+			{
+				Cmd:         "roomctl state --room {{room}}",
+				Description: "Confirm the existing instance and current layout before remounting.",
+			},
+			{
+				Cmd:         "roomctl mount --room {{room}} --instance {{instance}} --server {{server}} --container {{x}},{{y}},{{w}},{{h}}",
+				Description: "Retry with a new instance ID if another mount is required.",
+			},
+		}
+	}
+
+	if code == "INSTANCE_NOT_FOUND" {
+		return []suggestion{
+			{
+				Cmd:         "roomctl state --room {{room}}",
+				Description: "List mounted instances and verify the instance ID.",
+			},
+			{
+				Cmd:         "roomctl mount --room {{room}} --instance {{instance}} --server {{server}} --container {{x}},{{y}},{{w}},{{h}}",
+				Description: "Mount the instance if it does not exist yet.",
+			},
+		}
+	}
+
+	if code == "IDEMPOTENCY_CONFLICT" {
+		return []suggestion{
+			{
+				Cmd:         "roomctl state --room {{room}}",
+				Description: "Check whether the original command already applied.",
+			},
+			{
+				Cmd:         "roomctl state-get --room {{room}} --path state.revision",
+				Description: "Compare room revision before deciding whether to retry the write.",
+			},
+		}
+	}
+
+	if code == "UNSUPPORTED_CAPABILITY" {
+		return []suggestion{
+			{
+				Cmd:         "roomctl capabilities --room {{room}} --instance {{instance}}",
+				Description: "Check negotiated capabilities before invoking gated endpoints.",
+			},
+			{
+				Cmd:         "roomctl list-tools --room {{room}} --instance {{instance}}",
+				Description: "Fallback to tools exposed by this instance when a primitive is unavailable.",
+			},
+		}
+	}
+
+	if code == "INVALID_PAYLOAD" || code == "INVALID_COMMAND" {
+		return []suggestion{
+			{
+				Cmd:         "roomctl state --room {{room}}",
+				Description: "Inspect current state to verify valid instance IDs and layout fields.",
+			},
+			{
+				Cmd:         "roomctl inspect --server {{server}}",
+				Description: "Re-check server metadata before retrying with corrected arguments.",
+			},
+		}
+	}
+
+	if code == "NO_UI_RESOURCE" || code == "UI_RESOURCE_INVALID" {
+		return []suggestion{
+			{
+				Cmd:         "roomctl inspect --server {{server}}",
+				Description: "Discover UI candidates exposed by the server.",
+			},
+			{
+				Cmd:         "roomctl mount --room {{room}} --instance {{instance}} --server {{server}} --container {{x}},{{y}},{{w}},{{h}} --ui-resource-uri {{ui-resource-uri}}",
+				Description: "Retry mount with a valid UI resource URI from inspect output.",
+			},
+		}
+	}
+
+	if code == "AUTH_REQUIRED" || code == "AUTH_FAILED" || code == "AUTH_DISCOVERY_FAILED" {
+		return []suggestion{
+			{
+				Cmd:         "roomctl inspect --server {{server}}",
+				Description: "Inspect auth requirements and transport metadata for this server.",
+			},
+			{
+				Cmd:         "roomctl mount --room {{room}} --instance {{instance}} --server {{server}} --container {{x}},{{y}},{{w}},{{h}}",
+				Description: "Retry mount after supplying required credentials or auth policy.",
+			},
+		}
+	}
+
+	if code == "SERVER_NOT_ALLOWLISTED" {
+		return []suggestion{
+			{
+				Cmd:         "npm run roomd:start",
+				Description: "Restart roomd using global config security.profile=local-dev for permissive local mounts.",
+			},
+			{
+				Cmd:         "roomctl inspect --server {{server}}",
+				Description: "Verify descriptor parsing before attempting another mount.",
+			},
+		}
+	}
+
+	if code == "UPSTREAM_TRANSPORT_ERROR" {
+		return []suggestion{
+			{
+				Cmd:         "roomctl inspect --server {{server}}",
+				Description: "Confirm the upstream MCP endpoint is reachable and protocol-compliant.",
+			},
+			{
+				Cmd:         "roomctl health",
+				Description: "Verify roomd itself is healthy before retrying.",
+			},
+		}
+	}
+
+	if code == "ROOMD_UNREACHABLE" {
+		return []suggestion{
+			{
+				Cmd:         "npm run roomd:start",
+				Description: "Start roomd when it is not listening at the configured base URL.",
+			},
+			{
+				Cmd:         "roomctl health",
+				Description: "Retry health after roomd is running.",
+			},
+		}
+	}
+
+	if code == "ROOMD_TIMEOUT" {
+		return []suggestion{
+			{
+				Cmd:         "roomctl health --timeout {{timeout}}",
+				Description: "Retry with a larger timeout for slow environments.",
+			},
+			{
+				Cmd:         "roomctl inspect --server {{server}} --timeout {{timeout}}",
+				Description: "Re-run inspect with an explicit timeout value.",
+			},
+		}
+	}
+
+	if code == "INVALID_BASE_URL" {
+		return []suggestion{
+			{
+				Cmd:         "roomctl health --base-url {{base-url}}",
+				Description: "Use a valid roomd URL including scheme and host.",
+			},
+		}
+	}
+
+	if code == "ROOMD_CLIENT_ERROR" || code == "INTERNAL_ERROR" {
+		return []suggestion{
+			{
+				Cmd:         "roomctl health",
+				Description: "Confirm roomd is reachable and responding.",
+			},
+			{
+				Cmd:         "roomctl inspect --server {{server}}",
+				Description: "Retry with a known-good MCP endpoint after verifying health.",
+			},
+		}
+	}
+
+	switch command {
+	case "health":
+		return []suggestion{
+			{
+				Cmd:         "roomctl inspect --server {{server}}",
+				Description: "Inspect an MCP endpoint to discover tools and UI candidates.",
+			},
+			{
+				Cmd:         "roomctl create --room {{room}}",
+				Description: "Create a room before mounting instances.",
+			},
+		}
+	case "inspect":
+		if env.Status >= 400 {
+			return []suggestion{
+				{
+					Cmd:         "roomctl health",
+					Description: "Verify roomd is reachable before retrying inspect.",
+				},
+				{
+					Cmd:         "roomctl inspect --server {{server}}",
+					Description: "Retry with a valid MCP endpoint or stdio descriptor.",
+				},
+			}
+		}
+		return []suggestion{
+			{
+				Cmd:         "roomctl create --room {{room}}",
+				Description: "Create a room to hold mounted instances.",
+			},
+			{
+				Cmd:         "roomctl mount --room {{room}} --instance {{instance}} --server {{server}} --container {{x}},{{y}},{{w}},{{h}}",
+				Description: "Mount the inspected MCP server into a room grid slot.",
+			},
+			{
+				Cmd:         "roomctl state --room {{room}}",
+				Description: "Verify room state after mounting.",
+			},
+		}
+	case "create":
+		return []suggestion{
+			{
+				Cmd:         "roomctl mount --room {{room}} --instance {{instance}} --server {{server}} --container {{x}},{{y}},{{w}},{{h}}",
+				Description: "Mount an MCP server into the newly created room.",
+			},
+			{
+				Cmd:         "roomctl state --room {{room}}",
+				Description: "Inspect current mounts, order, and selected instance.",
+			},
+		}
+	case "mount":
+		if env.Status >= 400 {
+			return []suggestion{
+				{
+					Cmd:         "roomctl inspect --server {{server}}",
+					Description: "Check server metadata and mountability before retrying.",
+				},
+				{
+					Cmd:         "roomctl state --room {{room}}",
+					Description: "Confirm current room mounts and layout.",
+				},
+			}
+		}
+		return []suggestion{
+			{
+				Cmd:         "roomctl list-tools --room {{room}} --instance {{instance}}",
+				Description: "List available tools for the mounted instance.",
+			},
+			{
+				Cmd:         "roomctl tool-call --room {{room}} --instance {{instance}} --name {{tool}} --arguments {{arguments-json}}",
+				Description: "Execute a tool call through the mounted instance.",
+			},
+			{
+				Cmd:         "roomctl state --room {{room}}",
+				Description: "Verify mount order, selection, and layout.",
+			},
+		}
+	case "state":
+		return []suggestion{
+			{
+				Cmd:         "roomctl state-get --room {{room}} --path state.selectedInstanceId",
+				Description: "Read the selected instance from room state.",
+			},
+			{
+				Cmd:         "roomctl state-get --room {{room}} --path state.mounts.0.container",
+				Description: "Inspect the first mounted instance container coordinates.",
+			},
+		}
+	case "state-get":
+		return []suggestion{
+			{
+				Cmd:         "roomctl state-get --room {{room}} --path state.selectedInstanceId",
+				Description: "Use full response paths rooted at `state`.",
+			},
+			{
+				Cmd:         "roomctl state --room {{room}}",
+				Description: "Inspect full state to discover available paths.",
+			},
+		}
+	case "tools-list":
+		return []suggestion{
+			{
+				Cmd:         "roomctl tool-call --room {{room}} --instance {{instance}} --name {{tool}} --arguments {{arguments-json}}",
+				Description: "Call one of the listed tools.",
+			},
+			{
+				Cmd:         "roomctl capabilities --room {{room}} --instance {{instance}}",
+				Description: "View negotiated capabilities for this instance.",
+			},
+		}
+	case "tool-call":
+		return []suggestion{
+			{
+				Cmd:         "roomctl list-tools --room {{room}} --instance {{instance}}",
+				Description: "Re-check tool names and schemas before another call.",
+			},
+			{
+				Cmd:         "roomctl state --room {{room}}",
+				Description: "Review invocation status history in room state.",
+			},
+		}
+	case "capabilities":
+		return []suggestion{
+			{
+				Cmd:         "roomctl list-tools --room {{room}} --instance {{instance}}",
+				Description: "List tools available on this mounted instance.",
+			},
+			{
+				Cmd:         "roomctl resources-list --room {{room}} --instance {{instance}}",
+				Description: "List resources if resource capability is available.",
+			},
+		}
+	case "resources-list":
+		return []suggestion{
+			{
+				Cmd:         "roomctl resources-read --room {{room}} --instance {{instance}} --uri {{uri}}",
+				Description: "Read a resource returned by resources/list.",
+			},
+			{
+				Cmd:         "roomctl resource-templates-list --room {{room}} --instance {{instance}}",
+				Description: "List URI templates when concrete resources require parameters.",
+			},
+		}
+	case "resources-read":
+		return []suggestion{
+			{
+				Cmd:         "roomctl resources-list --room {{room}} --instance {{instance}}",
+				Description: "List resources again to select another URI.",
+			},
+		}
+	case "resource-templates-list":
+		return []suggestion{
+			{
+				Cmd:         "roomctl resources-read --room {{room}} --instance {{instance}} --uri {{uri}}",
+				Description: "Read a concrete URI resolved from one of the listed templates.",
+			},
+		}
+	case "prompts-list":
+		return []suggestion{
+			{
+				Cmd:         "roomctl prompts-get --room {{room}} --instance {{instance}} --name {{prompt}} --arguments {{arguments-json}}",
+				Description: "Resolve one of the listed prompts.",
+			},
+		}
+	case "prompts-get":
+		return []suggestion{
+			{
+				Cmd:         "roomctl complete --room {{room}} --instance {{instance}} --params {{params-json}}",
+				Description: "Request completion options for prompt arguments.",
+			},
+		}
+	case "complete":
+		return []suggestion{
+			{
+				Cmd:         "roomctl prompts-get --room {{room}} --instance {{instance}} --name {{prompt}} --arguments {{arguments-json}}",
+				Description: "Fetch prompt output with explicit argument values.",
+			},
+		}
+	case "resources-subscribe", "resources-unsubscribe":
+		return []suggestion{
+			{
+				Cmd:         "roomctl resources-list --room {{room}} --instance {{instance}}",
+				Description: "List resources to verify valid subscription URIs.",
+			},
+		}
+	case "hide", "show", "select", "reorder", "layout", "unmount":
+		return []suggestion{
+			{
+				Cmd:         "roomctl state --room {{room}}",
+				Description: "Verify room state after lifecycle or layout changes.",
+			},
+		}
+	default:
+		return nil
+	}
+}
+
+func envelopeErrorCode(env roomd.Envelope) string {
+	body, ok := env.Body.(map[string]any)
+	if !ok {
+		return ""
+	}
+
+	code, _ := body["code"].(string)
+	return strings.TrimSpace(code)
 }
 
 func runWithClient(opts *rootOptions, run func(ctx context.Context, client *roomd.Client) (roomd.Envelope, error)) error {
@@ -777,7 +1265,8 @@ func runWithClient(opts *rootOptions, run func(ctx context.Context, client *room
 
 	client, err := roomd.NewClient(opts.baseURL, opts.timeout)
 	if err != nil {
-		return err
+		envelope := enrichEnvelopeWithSuggestions(opts.command, envelopeForClientError(err))
+		return printEnvelope(opts.stdout, opts.output, envelope)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -785,16 +1274,52 @@ func runWithClient(opts *rootOptions, run func(ctx context.Context, client *room
 
 	envelope, err := run(ctx, client)
 	if err != nil {
-		return err
+		failure := enrichEnvelopeWithSuggestions(opts.command, envelopeForClientError(err))
+		return printEnvelope(opts.stdout, opts.output, failure)
 	}
 
+	envelope = enrichEnvelopeWithSuggestions(opts.command, envelope)
+
 	return printEnvelope(opts.stdout, opts.output, envelope)
+}
+
+func envelopeForClientError(err error) roomd.Envelope {
+	message := strings.TrimSpace(err.Error())
+	status := 502
+	code := "ROOMD_CLIENT_ERROR"
+	userMessage := "roomctl request failed"
+
+	switch {
+	case strings.Contains(message, "base URL"):
+		status = 400
+		code = "INVALID_BASE_URL"
+		userMessage = "roomctl base URL is invalid"
+	case strings.Contains(message, "connection refused"):
+		status = 503
+		code = "ROOMD_UNREACHABLE"
+		userMessage = "roomd is not reachable at the configured base URL"
+	case strings.Contains(message, "i/o timeout"), strings.Contains(message, "context deadline exceeded"):
+		status = 504
+		code = "ROOMD_TIMEOUT"
+		userMessage = "roomd request timed out"
+	}
+
+	return roomd.Envelope{
+		Status: status,
+		Body: map[string]any{
+			"ok":      false,
+			"code":    code,
+			"error":   userMessage,
+			"details": map[string]any{"cause": message},
+		},
+	}
 }
 
 func printEnvelope(out io.Writer, format string, envelope roomd.Envelope) error {
 	if format == "pretty" && envelope.Status >= 400 {
 		if body, ok := envelope.Body.(map[string]any); ok {
 			if printPrettyError(out, envelope.Status, body) {
+				printPrettySuggestions(out, body)
 				return nil
 			}
 		}
@@ -819,6 +1344,57 @@ func printEnvelope(out io.Writer, format string, envelope roomd.Envelope) error 
 
 	_, err = fmt.Fprintln(out, string(data))
 	return err
+}
+
+func printPrettySuggestions(out io.Writer, body map[string]any) {
+	entries, ok := body["suggestions"]
+	if !ok || entries == nil {
+		return
+	}
+
+	suggestions := parseSuggestions(entries)
+	if len(suggestions) == 0 {
+		return
+	}
+
+	_, _ = fmt.Fprintln(out, "suggested next steps:")
+	for _, item := range suggestions {
+		if strings.TrimSpace(item.Cmd) == "" {
+			continue
+		}
+		if strings.TrimSpace(item.Description) == "" {
+			_, _ = fmt.Fprintf(out, "  - %s\n", item.Cmd)
+			continue
+		}
+		_, _ = fmt.Fprintf(out, "  - %s  # %s\n", item.Cmd, item.Description)
+	}
+}
+
+func parseSuggestions(raw any) []suggestion {
+	switch typed := raw.(type) {
+	case []suggestion:
+		return typed
+	case []any:
+		result := make([]suggestion, 0, len(typed))
+		for _, entry := range typed {
+			asMap, ok := entry.(map[string]any)
+			if !ok {
+				continue
+			}
+			cmd, _ := asMap["cmd"].(string)
+			description, _ := asMap["description"].(string)
+			if strings.TrimSpace(cmd) == "" {
+				continue
+			}
+			result = append(result, suggestion{
+				Cmd:         cmd,
+				Description: description,
+			})
+		}
+		return result
+	default:
+		return nil
+	}
 }
 
 func printPrettyError(out io.Writer, status int, body map[string]any) bool {
@@ -853,14 +1429,6 @@ func resolveIdempotencyKey(value string) string {
 		return trimmed
 	}
 	return uuid.NewString()
-}
-
-func envOrDefault(key string, fallback string) string {
-	value := strings.TrimSpace(os.Getenv(key))
-	if value == "" {
-		return fallback
-	}
-	return value
 }
 
 func commandTitle(value string) string {

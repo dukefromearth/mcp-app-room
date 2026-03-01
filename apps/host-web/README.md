@@ -8,7 +8,6 @@ A room-first MCP host that renders multiple tool UIs on a shared canvas through 
 - [`sandbox.html`](sandbox.html) / [`src/sandbox.ts`](src/sandbox.ts) - Outer iframe proxy with security validation and bidirectional message relay
 - [`src/room-canvas.tsx`](src/room-canvas.tsx) - Shared-session canvas manager
 - [`src/implementation.ts`](src/implementation.ts) - Sandbox loading and AppBridge setup
-- [`SHARED_SESSION_CANVAS_SPEC.md`](SHARED_SESSION_CANVAS_SPEC.md) - Guideline spec for shared-session canvas mounts + CLI-driven lifecycle control
 
 ## Getting Started
 
@@ -39,6 +38,19 @@ Open room mode:
 ```text
 http://localhost:8080/?mode=room&roomd=http://localhost:8090&room=demo
 ```
+
+## Dev Sidebar
+
+Room mode includes a protocol-fidelity dev sidebar for mounted instances:
+
+- It runs against roomd mounted-instance endpoints (`tools/*`, `resources/*`, `prompts/*`, `completion/*`).
+- It supports both schema-driven form input and raw JSON input.
+- It records execution history and renders normalized results.
+
+Query flags:
+
+- disable sidebar: `?devSidebar=off`
+- explicit enable (default is enabled): `?devSidebar=on`
 
 ## Browser Launch Defaults
 
