@@ -173,6 +173,12 @@ func newRootCmdWithOptions(opts *rootOptions) *cobra.Command {
 	cmd.AddCommand(
 		newHealthCmd(opts),
 		newCreateCmd(opts),
+		newRoomConfigListCmd(opts),
+		newRoomConfigGetCmd(opts),
+		newRoomConfigUpsertCmd(opts),
+		newRoomConfigPlanCmd(opts),
+		newRoomConfigLoadCmd(opts),
+		newRoomConfigSaveCmd(opts),
 		newStateCmd(opts),
 		newStateGetCmd(opts),
 		newAwaitEvidenceCmd(opts),

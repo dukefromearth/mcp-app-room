@@ -59,6 +59,101 @@ export const mountClientCapabilitiesSchema = z.object({
   elicitation: mountClientElicitationSchema.optional(),
 });
 
+const roomConfigInstanceSchema = z.object({
+  instanceId: z.string().min(1),
+  server: serverTargetSchema,
+  container: gridContainerSchema,
+  uiResourceUri: z.string().min(1).optional(),
+  visible: z.boolean().optional(),
+  clientCapabilities: mountClientCapabilitiesSchema.optional(),
+});
+
+export const roomConfigSpecSchema = z
+  .object({
+    schemaVersion: z.literal("room-config.v1"),
+    title: z.string().min(1).optional(),
+    description: z.string().min(1).optional(),
+    tags: z.array(z.string().min(1)).optional(),
+    instances: z.array(roomConfigInstanceSchema).min(1),
+    order: z.array(z.string().min(1)).optional(),
+    selectedInstanceId: z.string().min(1).nullable().optional(),
+  })
+  .superRefine((value, ctx) => {
+    const instanceIds = value.instances.map((instance) => instance.instanceId);
+    const uniqueIds = new Set(instanceIds);
+    if (uniqueIds.size !== instanceIds.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "instances must have unique instanceId values",
+      });
+    }
+
+    if (value.order) {
+      const uniqueOrder = new Set(value.order);
+      if (uniqueOrder.size !== value.order.length) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "order must not contain duplicate instanceId values",
+        });
+      }
+      if (value.order.length !== value.instances.length) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "order must include every instanceId exactly once",
+        });
+      }
+      for (const instanceId of value.order) {
+        if (!uniqueIds.has(instanceId)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `order references unknown instanceId: ${instanceId}`,
+          });
+        }
+      }
+    }
+
+    if (
+      value.selectedInstanceId !== undefined &&
+      value.selectedInstanceId !== null &&
+      !uniqueIds.has(value.selectedInstanceId)
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "selectedInstanceId must match one of instances[].instanceId",
+      });
+    }
+  });
+
+export const roomConfigUpsertSchema = z.object({
+  namespace: z.string().min(1).default("default"),
+  owner: z.string().min(1).optional(),
+  visibility: z.enum(["private", "shared"]).default("private"),
+  spec: roomConfigSpecSchema,
+});
+
+export const roomConfigLoadSchema = z.object({
+  namespace: z.string().min(1).default("default"),
+  roomId: z.string().min(1),
+  mode: z.enum(["empty_only"]).default("empty_only"),
+  dryRun: z.boolean().default(false),
+  idempotencyKey: z.string().min(1),
+});
+
+export const roomConfigPlanSchema = z.object({
+  namespace: z.string().min(1).default("default"),
+  roomId: z.string().min(1),
+  mode: z.enum(["empty_only"]).default("empty_only"),
+});
+
+export const roomConfigSaveSchema = z.object({
+  namespace: z.string().min(1).default("default"),
+  owner: z.string().min(1).optional(),
+  visibility: z.enum(["private", "shared"]).default("private"),
+  title: z.string().min(1).optional(),
+  description: z.string().min(1).optional(),
+  tags: z.array(z.string().min(1)).optional(),
+});
+
 const mountCommandSchema = z.object({
   type: z.literal("mount"),
   instanceId: z.string().min(1),

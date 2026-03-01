@@ -2,11 +2,33 @@ import type { RoomState, UiResource } from "./contracts";
 
 interface RoomdError {
   error?: string;
+  code?: string;
+}
+
+export class RoomdRequestError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+    readonly code?: string,
+  ) {
+    super(message);
+    this.name = "RoomdRequestError";
+  }
 }
 
 export interface RoomdClient {
   ensureRoom(roomId: string): Promise<void>;
   fetchRoomState(roomId: string): Promise<RoomState>;
+  loadRoomConfig(
+    configId: string,
+    params: {
+      roomId: string;
+      namespace?: string;
+      mode?: "empty_only";
+      dryRun?: boolean;
+      idempotencyKey: string;
+    },
+  ): Promise<unknown>;
   fetchUiResource(roomId: string, instanceId: string): Promise<UiResource>;
   fetchCapabilities(roomId: string, instanceId: string): Promise<Record<string, unknown> | null>;
   reportInstanceEvidence(
@@ -37,20 +59,45 @@ export function createRoomdClient(roomdUrl: string): RoomdClient {
     async ensureRoom(roomId: string): Promise<void> {
       const response = await postJson("/rooms", { roomId });
       if (response.status !== 201 && response.status !== 409) {
-        throw new Error(await readErrorMessage(response));
+        await throwRoomdResponseError(response);
       }
     },
     async fetchRoomState(roomId: string): Promise<RoomState> {
       const response = await fetch(new URL(roomPath(roomId, "/state"), roomdUrl));
       if (!response.ok) {
-        throw new Error(await readErrorMessage(response));
+        await throwRoomdResponseError(response);
       }
       return (await parseJson<{ state: RoomState }>(response)).state;
+    },
+    async loadRoomConfig(
+      configId: string,
+      params: {
+        roomId: string;
+        namespace?: string;
+        mode?: "empty_only";
+        dryRun?: boolean;
+        idempotencyKey: string;
+      },
+    ): Promise<unknown> {
+      const response = await postJson(
+        `/room-configs/${encodeURIComponent(configId)}/load`,
+        {
+          namespace: params.namespace ?? "default",
+          roomId: params.roomId,
+          mode: params.mode ?? "empty_only",
+          dryRun: params.dryRun ?? false,
+          idempotencyKey: params.idempotencyKey,
+        },
+      );
+      if (!response.ok) {
+        await throwRoomdResponseError(response);
+      }
+      return parseJson<unknown>(response);
     },
     async fetchUiResource(roomId: string, instanceId: string): Promise<UiResource> {
       const response = await fetch(new URL(instancePath(roomId, instanceId, "/ui"), roomdUrl));
       if (!response.ok) {
-        throw new Error(await readErrorMessage(response));
+        await throwRoomdResponseError(response);
       }
       return (await parseJson<{ resource: UiResource }>(response)).resource;
     },
@@ -87,13 +134,13 @@ export function createRoomdClient(roomdUrl: string): RoomdClient {
       }
       const response = await postJson(instancePath(roomId, instanceId, "/evidence"), payload);
       if (!response.ok) {
-        throw new Error(await readErrorMessage(response));
+        await throwRoomdResponseError(response);
       }
     },
     async postInstanceJson(roomId: string, instanceId: string, pathSuffix: string, body: unknown): Promise<unknown> {
       const response = await postJson(instancePath(roomId, instanceId, `/${pathSuffix}`), body);
       if (!response.ok) {
-        throw new Error(await readErrorMessage(response));
+        await throwRoomdResponseError(response);
       }
       return parseJson<unknown>(response);
     },
@@ -105,14 +152,27 @@ export function createRoomdClient(roomdUrl: string): RoomdClient {
   };
 }
 
-async function readErrorMessage(response: Response): Promise<string> {
+async function throwRoomdResponseError(response: Response): Promise<never> {
+  const parsed = await readErrorPayload(response);
+  throw new RoomdRequestError(response.status, parsed.message, parsed.code);
+}
+
+async function readErrorPayload(
+  response: Response,
+): Promise<{ message: string; code?: string }> {
+  const fallback = `${response.status} ${response.statusText}`;
   try {
     const body = (await response.json()) as RoomdError;
-    if (body?.error) {
-      return body.error;
+    if (typeof body?.error === "string" && body.error.trim().length > 0) {
+      return {
+        message: body.error,
+        ...(typeof body.code === "string" && body.code.length > 0
+          ? { code: body.code }
+          : {}),
+      };
     }
   } catch {
     // GOTCHA: roomd may return non-JSON responses on proxy/server failures.
   }
-  return `${response.status} ${response.statusText}`;
+  return { message: fallback };
 }

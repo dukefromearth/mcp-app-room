@@ -9,6 +9,12 @@
 - `GET /rooms/:roomId/state`
 - `GET /rooms/:roomId/events`
 - `POST /rooms/:roomId/commands`
+- `GET /room-configs?namespace=<namespace>`
+- `GET /room-configs/:configId?namespace=<namespace>`
+- `PUT /room-configs/:configId`
+- `POST /room-configs/:configId/plan`
+- `POST /room-configs/:configId/load`
+- `POST /rooms/:roomId/configs/:configId/save`
 
 Auxiliary host endpoints:
 
@@ -106,8 +112,10 @@ Current canonical codes:
 - `IDEMPOTENCY_CONFLICT`
 - `ROOM_EXISTS`
 - `ROOM_NOT_FOUND`
+- `ROOM_NOT_EMPTY`
 - `INSTANCE_EXISTS`
 - `INSTANCE_NOT_FOUND`
+- `CONFIG_NOT_FOUND`
 - `SERVER_NOT_ALLOWLISTED`
 - `UNSUPPORTED_CAPABILITY`
 - `NO_UI_RESOURCE`
@@ -124,6 +132,10 @@ Current canonical codes:
 ```bash
 npm run --workspace services/roomd start
 ```
+
+Optional room configuration persistence path:
+
+- `ROOMD_CONFIG_DB_PATH` (default: `data/room-configs.sqlite`)
 
 ## CLI
 

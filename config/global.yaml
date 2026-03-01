@@ -9,6 +9,9 @@ roomd:
 host:
   mode: "room"
   roomId: "demo"
+  # Optional preconfigured room bootstrap (loaded once when room is empty).
+  # roomConfigId: "banking-room"
+  # roomConfigNamespace: "default"
   ports:
     host: 8080
     sandbox: 8081

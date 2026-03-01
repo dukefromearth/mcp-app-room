@@ -17,6 +17,8 @@ import styles from "./index.module.css";
 interface HostConfig {
   roomdUrl: string;
   roomId: string;
+  roomConfigId?: string;
+  roomConfigNamespace?: string;
 }
 
 function getQueryParams() {
@@ -47,6 +49,12 @@ async function fetchHostConfig(): Promise<HostConfig> {
   return {
     roomdUrl: data.roomdUrl,
     roomId: data.roomId,
+    ...(typeof data.roomConfigId === "string" && data.roomConfigId.trim().length > 0
+      ? { roomConfigId: data.roomConfigId.trim() }
+      : {}),
+    ...(typeof data.roomConfigNamespace === "string" && data.roomConfigNamespace.trim().length > 0
+      ? { roomConfigNamespace: data.roomConfigNamespace.trim() }
+      : {}),
   };
 }
 
@@ -96,7 +104,16 @@ function HostEntry({ hostConfigPromise }: HostEntryProps) {
   return (
     <>
       {!queryParams.hideThemeToggle && <ThemeToggle />}
-      <RoomCanvasHost config={{ roomdUrl, roomId }} />
+      <RoomCanvasHost
+        config={{
+          roomdUrl,
+          roomId,
+          ...(hostConfig.roomConfigId ? { roomConfigId: hostConfig.roomConfigId } : {}),
+          ...(hostConfig.roomConfigNamespace
+            ? { roomConfigNamespace: hostConfig.roomConfigNamespace }
+            : {}),
+        }}
+      />
     </>
   );
 }

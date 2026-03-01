@@ -38,6 +38,8 @@ export interface RoomEvent {
 export interface HostConfig {
   roomdUrl: string;
   roomId: string;
+  roomConfigId?: string;
+  roomConfigNamespace?: string;
 }
 
 export interface UiResource {

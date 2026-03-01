@@ -30,34 +30,42 @@ export function RoomCanvasHost({ config }: RoomCanvasHostProps) {
     setConnectionState("loading");
     setError(null);
 
-    subscribeToRoomEvents(roomdClient, config.roomId, {
-      onSnapshot(snapshot) {
-        if (disposed) {
-          return;
-        }
-        setState(snapshot);
-        setConnectionState("connected");
+    subscribeToRoomEvents(
+      roomdClient,
+      config.roomId,
+      {
+        roomConfigId: config.roomConfigId,
+        roomConfigNamespace: config.roomConfigNamespace,
       },
-      onEvent(nextState) {
-        if (disposed) {
-          return;
-        }
-        setState(nextState);
-        setConnectionState("connected");
+      {
+        onSnapshot(snapshot) {
+          if (disposed) {
+            return;
+          }
+          setState(snapshot);
+          setConnectionState("connected");
+        },
+        onEvent(nextState) {
+          if (disposed) {
+            return;
+          }
+          setState(nextState);
+          setConnectionState("connected");
+        },
+        onError(message) {
+          if (disposed) {
+            return;
+          }
+          setError(message);
+        },
+        onReconnect() {
+          if (disposed) {
+            return;
+          }
+          setConnectionState("reconnecting");
+        },
       },
-      onError(message) {
-        if (disposed) {
-          return;
-        }
-        setError(message);
-      },
-      onReconnect() {
-        if (disposed) {
-          return;
-        }
-        setConnectionState("reconnecting");
-      },
-    })
+    )
       .then((cleanup) => {
         if (disposed) {
           cleanup();
