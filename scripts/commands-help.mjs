@@ -25,6 +25,10 @@ const commands = [
     name: "npm run roomd:cli -- --help",
     description: "Open roomctl help and usage.",
   },
+  {
+    name: "npm run fixture:integration-server",
+    description: "Run canonical real MCP fixture used by integration tests.",
+  },
 ];
 
 console.log("Recommended commands");

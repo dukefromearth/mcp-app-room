@@ -1,29 +1,38 @@
-# Example: Integration Test Server
+# Integration Fixture Server
 
-An MCP App example used for E2E integration testing.
+Real MCP server fixture used by repository integration tests.
 
-## Overview
+## Why this exists
 
-This example demonstrates all App SDK communication APIs and is used by the E2E test suite to verify host-app interactions:
+- Tests must run against a real MCP server process, not a mocked HTTP handler.
+- The fixture is self-contained in this repo so tests do not depend on external checkouts.
+- It follows the upstream ext-apps integration-server pattern (tool + UI resource + Streamable HTTP transport).
 
-- Tool registration with a linked UI resource
-- React UI using the [`useApp()`](https://modelcontextprotocol.github.io/ext-apps/api/functions/_modelcontextprotocol_ext-apps_react.useApp.html) hook
-- App communication APIs: [`callServerTool`](https://modelcontextprotocol.github.io/ext-apps/api/classes/app.App.html#callservertool), [`sendMessage`](https://modelcontextprotocol.github.io/ext-apps/api/classes/app.App.html#sendmessage), [`sendLog`](https://modelcontextprotocol.github.io/ext-apps/api/classes/app.App.html#sendlog), [`openLink`](https://modelcontextprotocol.github.io/ext-apps/api/classes/app.App.html#openlink)
+## Files
 
-## Key Files
+- `main.mjs`: starts Streamable HTTP (`/mcp`) or stdio transport.
+- `server.mjs`: registers `get-time` tool and linked UI resource.
+- `dist/mcp-app.html`: bundled UI payload served as `text/html;profile=mcp-app`.
 
-- [`server.ts`](server.ts) - MCP server with tool and resource registration
-- [`mcp-app.html`](mcp-app.html) / [`src/mcp-app.tsx`](src/mcp-app.tsx) - React UI using `useApp()` hook
-
-## Getting Started
+## Run
 
 ```bash
-npm install
-npm run dev
+npm run fixture:integration-server
 ```
 
-## How It Works
+Optional stdio mode:
 
-1. The server registers a `get-time` tool with metadata linking it to a UI HTML resource (`ui://get-time/mcp-app.html`).
-2. When the tool is invoked, the Host renders the UI from the resource.
-3. The UI uses the MCP App SDK API to communicate with the host and call server tools.
+```bash
+npm run fixture:integration-server:stdio
+```
+
+## Upstream alignment
+
+This fixture is copied and adapted from:
+
+- `https://github.com/modelcontextprotocol/ext-apps/tree/main/examples/integration-server`
+
+Adaptations are intentionally minimal:
+
+- JS runtime entrypoints (`.mjs`) so tests can launch with plain `node`.
+- Localized static UI bundle at `dist/mcp-app.html`.

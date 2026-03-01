@@ -17,6 +17,8 @@
     "roomd:start": "node ./scripts/run-roomd.mjs start",
     "roomd:start:strict": "node ./scripts/run-roomd.mjs start --profile strict",
     "roomd:cli": "go run ./tools/roomctl/cmd/roomctl",
+    "fixture:integration-server": "node ./e2e/fixtures/integration-server/main.mjs",
+    "fixture:integration-server:stdio": "node ./e2e/fixtures/integration-server/main.mjs --stdio",
     "repo:guard": "node tools/repo-guard/check.mjs",
     "repo:guard:strict": "node tools/repo-guard/check.mjs --strict",
     "repo:guard:baseline": "node tools/repo-guard/check.mjs --write-baseline",

@@ -17,12 +17,15 @@ const fixtureServerPath = path.join(
   repoRoot,
   "e2e",
   "fixtures",
-  "integration-server.mjs",
+  "integration-server",
+  "main.mjs",
 );
 
 test.describe("roomctl tool-call default await with local real server", () => {
   test.describe.configure({ mode: "serial" });
   test.setTimeout(120_000);
+  // GOTCHA: this suite intentionally does not boot host-web, so app_initialized
+  // evidence is expected to remain absent unless explicitly injected.
 
   let tempDir = "";
   let configPath = "";

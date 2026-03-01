@@ -86,6 +86,16 @@ npm run verify        # default pre-push command
 npm run verify:full   # includes e2e + conformance tier1
 ```
 
+## Real MCP Fixture
+
+Canonical real MCP server fixture for integration tests:
+
+```bash
+npm run fixture:integration-server
+```
+
+Fixture source lives at `e2e/fixtures/integration-server`.
+
 ## MCP Conformance (Tier 1 Gate)
 
 Run deterministic MCP conformance checks and enforce the Tier 1 threshold:
