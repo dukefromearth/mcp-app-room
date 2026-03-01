@@ -55,6 +55,183 @@ mcp-app-room (`@mcp-app-room`) extends (`@modelcontextprotocol/ext-apps`), which
 
 ### What makes a good repository?
 
+```mermaid
+flowchart-elk TB
+  %% =========================
+  %% NORTH STAR OPERATING MODEL
+  %% =========================
+
+  subgraph N0["North Star Outcomes"]
+    O1["Local Change Radius<br/>Most changes touch one module or one seam"]
+    O2["Stable External Behavior<br/>Refactors are invisible to clients by default"]
+    O3["Low Cognitive Load<br/>New engineers can reason about the system quickly"]
+    O4["Fast and Safe Delivery<br/>Small PRs, strong gates, predictable releases"]
+    O5["Continuous Simplification<br/>Complexity and dead code trend down over time"]
+  end
+
+  subgraph N1["Strategic Inputs"]
+    I1["User Outcomes and Product Goals"]
+    I2["Operational Incidents and Reliability Risks"]
+    I3["Developer Friction and Maintenance Pain"]
+    I4["Security and Compliance Needs"]
+    I5["Platform and Ecosystem Changes"]
+  end
+
+  subgraph N2["Portfolio Triage and Work Typing"]
+    T0["Intake and Clarification"]
+    T1{"Change Type"}
+    T2["Behavior Preserving Refactor"]
+    T3["Behavior Changing Feature"]
+    T4["Risk Classification<br/>Low, Medium, High"]
+    T5["PR Slice Plan<br/>One seam per PR when possible"]
+  end
+
+  subgraph N3["Architecture Blueprint"]
+    A0["System Context and Boundaries"]
+    A1["Experience Surfaces<br/>API, UI, CLI, Events"]
+    A2["Contract Layer<br/>Schemas, Error Taxonomy, Version Rules"]
+    A3["Application Layer<br/>Use Cases and Orchestration"]
+    A4["Domain Core<br/>Policy, State, Invariants, Pure Logic"]
+    A5["Ports<br/>Small Interfaces Around Volatile Dependencies"]
+    A6["Adapters<br/>SDK, HTTP, DB, Queue, Filesystem, External APIs"]
+    A7["Infrastructure<br/>Runtime Config, Secrets, Deployment, Observability"]
+  end
+
+  subgraph N4["Contract Discipline System"]
+    C1["Single Contract Source of Truth"]
+    C2["Compatibility Rules<br/>Backward Compatible by Default"]
+    C3["Consumer Contract Tests"]
+    C4["Golden Behavior Snapshots<br/>Status, Payload, Error Shape, Event Semantics"]
+    C5["Deprecation Lifecycle<br/>Announce, Measure, Remove"]
+    C6["Migration Playbooks<br/>Feature Flags and Rollback Paths"]
+  end
+
+  subgraph N5["Code Structure and Modularity Rules"]
+    M1["Layered Dependencies<br/>Inward Toward Stable Policy"]
+    M2["No Cross Layer Leaks"]
+    M3["No God Files<br/>Line and Complexity Caps"]
+    M4["Small Interfaces<br/>Caller Oriented Contracts"]
+    M5["Adapter Isolation<br/>Vendor and Protocol Churn at Edges"]
+    M6["Anti Corruption Mapping<br/>External Models Translated at Boundary"]
+  end
+
+  subgraph N6["Delivery and PR Rules"]
+    D1["Red First Testing<br/>At Least One Failing Test Before Change"]
+    D2["Behavior Lock Tests<br/>High Risk Invariants"]
+    D3["Net Code Reduction Goal<br/>Delete More Than Add for Refactors"]
+    D4["No Silent Behavior Drift<br/>Explicitly Declared if Intentional"]
+    D5["PR Proof Section<br/>Evidence Code Is Better and Behavior Is Stable"]
+    D6["Junior Safe Handoff<br/>Clear Context, Commands, and Verification Steps"]
+  end
+
+  subgraph N7["Automated Quality Gates"]
+    Q1["Fast Gate<br/>Lint, Architecture Rules, Contract Drift, Docs"]
+    Q2["Standard Gate<br/>Build, Unit, Integration, Type Checks"]
+    Q3["Full Gate<br/>E2E, Conformance, Security, Performance Budgets"]
+    Q4["Dead Code and Orphan Detection"]
+    Q5["Dependency Governance<br/>No New Cycles or Forbidden Coupling"]
+    Q6["One Command UX<br/>verify fast, verify, verify full"]
+  end
+
+  subgraph N8["Runtime and Feedback Loop"]
+    R1["Structured Telemetry<br/>Logs, Metrics, Traces, Domain Events"]
+    R2["SLO and Error Budget Monitoring"]
+    R3["Incident Review<br/>Root Cause and Missed Guardrails"]
+    R4["Guardrail Updates<br/>Rules, Tests, Templates, Checklists"]
+    R5["Architecture Debt Register<br/>Owned, Time Bound, Burn Down"]
+  end
+
+  subgraph N9["Governance and Learning"]
+    G1["Architecture Decision Records"]
+    G2["Repository Playbook<br/>How to Work Here"]
+    G3["Onboarding Paths<br/>From Zero Context to Safe Change"]
+    G4["Periodic Simplification Reviews<br/>Remove Legacy and Drift"]
+  end
+
+  %% Strategic flow
+  I1 --> T0
+  I2 --> T0
+  I3 --> T0
+  I4 --> T0
+  I5 --> T0
+  T0 --> T1
+  T1 -- "Refactor" --> T2
+  T1 -- "Feature" --> T3
+  T2 --> T4
+  T3 --> T4
+  T4 --> T5
+
+  %% Architecture flow
+  T5 --> A0
+  A0 --> A1
+  A1 --> A2
+  A2 --> A3
+  A3 --> A4
+  A4 --> A5
+  A5 --> A6
+  A6 --> A7
+
+  %% Contract system links
+  A2 --> C1
+  C1 --> C2
+  C2 --> C3
+  C2 --> C4
+  C2 --> C5
+  C5 --> C6
+
+  %% Modularity links
+  A3 --> M1
+  A4 --> M1
+  A5 --> M4
+  A6 --> M5
+  A6 --> M6
+  M1 --> M2
+  M2 --> M3
+
+  %% Delivery links
+  T2 --> D1
+  T3 --> D1
+  D1 --> D2
+  D2 --> D4
+  D1 --> D3
+  D4 --> D5
+  D5 --> D6
+
+  %% Gate links
+  D6 --> Q1
+  Q1 --> Q2
+  Q2 --> Q3
+  Q1 --> Q4
+  Q1 --> Q5
+  Q1 --> Q6
+
+  %% Runtime feedback
+  Q3 --> R1
+  R1 --> R2
+  R2 --> R3
+  R3 --> R4
+  R4 --> Q1
+  R3 --> R5
+  R5 --> T0
+
+  %% Governance links
+  R4 --> G1
+  G1 --> G2
+  G2 --> G3
+  G3 --> D6
+  G1 --> G4
+  G4 --> T0
+
+  %% Outcome mapping
+  M3 --> O1
+  C4 --> O2
+  G3 --> O3
+  Q6 --> O3
+  Q3 --> O4
+  D3 --> O5
+  G4 --> O5
+```
+
 A good repository optimizes for change over time, not just current correctness.
 
 At principal level, I'd use this bar:
