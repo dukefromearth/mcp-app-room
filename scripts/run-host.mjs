@@ -15,9 +15,7 @@ const repoRoot = resolve(__dirname, "..");
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 
 function usage() {
-  console.error(
-    "Usage: node scripts/run-roomd.mjs <start|dev> [--config <path>] [--profile <strict|local-dev>]",
-  );
+  console.error("Usage: node scripts/run-host.mjs <start|dev|serve> [--config <path>]");
 }
 
 function parseArgs(args) {
@@ -27,14 +25,12 @@ function parseArgs(args) {
   }
 
   const mode = args[0];
-  if (mode !== "start" && mode !== "dev") {
+  if (mode !== "start" && mode !== "dev" && mode !== "serve") {
     usage();
     process.exit(1);
   }
 
   let configPath;
-  let profileOverride;
-
   for (let i = 1; i < args.length; i++) {
     const token = args[i];
     if (token === "--config") {
@@ -46,26 +42,16 @@ function parseArgs(args) {
       i += 1;
       continue;
     }
-    if (token === "--profile") {
-      const value = args[i + 1];
-      if (!value) {
-        throw new Error("--profile requires a value");
-      }
-      profileOverride = value;
-      i += 1;
-      continue;
-    }
     throw new Error(`Unknown argument: ${token}`);
   }
 
   return {
     mode,
     configPath,
-    profileOverride,
   };
 }
 
-async function assertPortAvailable(port) {
+async function assertPortAvailable(port, label) {
   await new Promise((resolvePromise, rejectPromise) => {
     const server = createServer();
 
@@ -82,7 +68,7 @@ async function assertPortAvailable(port) {
   }).catch((error) => {
     if (error && typeof error === "object" && "code" in error && error.code === "EADDRINUSE") {
       throw new Error(
-        `Configured roomd port ${port} is already in use. Stop the conflicting process or update roomd.baseUrl in config/global.yaml.`,
+        `Configured ${label} port ${port} is already in use. Stop the conflicting process or update config/global.yaml host.ports.${label}.`,
       );
     }
     throw error;
@@ -112,33 +98,25 @@ try {
 }
 
 try {
-  await assertPortAvailable(config.roomd.port);
+  await assertPortAvailable(config.host.ports.host, "host");
+  await assertPortAvailable(config.host.ports.sandbox, "sandbox");
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);
 }
 
-const profile = options.profileOverride ?? config.security.profile;
-if (profile !== "strict" && profile !== "local-dev") {
-  console.error("profile override must be strict or local-dev");
-  process.exit(1);
-}
+console.log(
+  `[host] config=${configPath} roomd=${config.roomd.baseUrl} host=${config.host.ports.host} sandbox=${config.host.ports.sandbox} mode=${config.host.mode} room=${config.host.roomId} profile=${config.security.profile}`,
+);
 
 const env = {
   ...process.env,
   MCP_APP_ROOM_CONFIG: configPath,
-  ROOMD_PORT: String(config.roomd.port),
-  DANGEROUSLY_ALLOW_STDIO: profile === "local-dev" ? "true" : "false",
-  DANGEROUSLY_ALLOW_REMOTE_HTTP: profile === "local-dev" ? "true" : "false",
 };
-
-console.log(
-  `[roomd] config=${configPath} baseUrl=${config.roomd.baseUrl} profile=${profile}`,
-);
 
 const child = spawn(
   npmCommand,
-  ["run", "--workspace", "services/roomd", options.mode],
+  ["run", "--workspace", "apps/host-web", options.mode],
   {
     cwd: repoRoot,
     stdio: "inherit",
@@ -156,7 +134,7 @@ child.on("exit", (code, signal) => {
 
 child.on("error", (error) => {
   console.error(
-    `Failed to launch roomd (${options.mode}): ${
+    `Failed to launch host (${options.mode}): ${
       error instanceof Error ? error.message : String(error)
     }`,
   );

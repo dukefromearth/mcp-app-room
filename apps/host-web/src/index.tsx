@@ -76,6 +76,8 @@ function HostEntry({ hostConfigPromise }: HostEntryProps) {
   const queryParams = useMemo(() => getQueryParams(), []);
   const hostConfig = use(hostConfigPromise);
 
+  // GOTCHA: room/roomd query overrides are intentionally gated behind debug mode.
+  // Without `debug=1`, runtime routing always follows /api/host-config values.
   const roomdUrl = queryParams.debugMode
     ? queryParams.roomd ?? hostConfig.roomdUrl
     : hostConfig.roomdUrl;

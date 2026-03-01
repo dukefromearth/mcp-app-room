@@ -33,24 +33,20 @@ e2e/
 ```bash
 npm install
 npm run dev
+npm run host:open
 ```
 
 Global runtime defaults are loaded from:
 
 - `config/global.yaml`
 
-This starts:
-
-- Host: `http://localhost:8080`
-- Sandbox: `http://localhost:8081`
-- roomd: `http://localhost:8090`
-
 Security behavior is profile-driven via `config/global.yaml`:
 
 - `security.profile: local-dev` enables permissive local behavior
 - `security.profile: strict` enforces restrictive defaults
 
-`npm` scripts (`host:start`, `roomd:start`, `roomd:cli`) read `config/global.yaml` directly.
+`npm` scripts (`host:start`, `roomd:start`, `roomd:cli`, `host:open`) resolve
+runtime wiring from `config/global.yaml` by default (or `MCP_APP_ROOM_CONFIG` when set).
 Use explicit flags for overrides.
 
 To run roomd in strict mode locally:
@@ -61,12 +57,9 @@ npm run roomd:start:strict
 
 Open:
 
-- `http://localhost:8080/`
 - Debug-only query overrides are still available with `?debug=1` (for e2e and diagnostics).
 
 ## CLI
-
-Quick guide: [`docs/cli/CLI_QUICK_START.md`](docs/cli/CLI_QUICK_START.md)
 
 ```bash
 npm run roomd:cli -- create --room demo
@@ -92,6 +85,16 @@ npm run verify:fast   # fast local checks
 npm run verify        # default pre-push command
 npm run verify:full   # includes e2e + conformance tier1
 ```
+
+## Real MCP Fixture
+
+Canonical real MCP server fixture for integration tests:
+
+```bash
+npm run fixture:integration-server
+```
+
+Fixture source lives at `e2e/fixtures/integration-server`.
 
 ## MCP Conformance (Tier 1 Gate)
 

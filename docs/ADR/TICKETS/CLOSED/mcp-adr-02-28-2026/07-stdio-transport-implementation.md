@@ -35,7 +35,6 @@ Implement stdio adapter support with secure process lifecycle management and par
 - `/Users/duke/Documents/github/mcp-app-room/services/roomd/src/store.ts`
 - `/Users/duke/Documents/github/mcp-app-room/services/roomd/src/server.ts`
 - `/Users/duke/Documents/github/mcp-app-room/services/roomd/tests/store.test.ts`
-- `/Users/duke/Documents/github/mcp-app-room/docs/cli/CLI_QUICK_START.md`
 
 # Implementation Plan
 1. Implement stdio adapter using MCP SDK stdio client transport.

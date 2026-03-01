@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   capabilityPreviewSchema,
   elicitationUpdateSchema,
+  instanceEvidenceSchema,
   rootsUpdateSchema,
   samplingUpdateSchema,
 } from "./schema";
@@ -50,6 +51,26 @@ export function registerInstanceRoutes(
           req.params.instanceId,
         );
         res.json({ ok: true, capabilities });
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
+
+  app.post(
+    "/rooms/:roomId/instances/:instanceId/evidence",
+    async (req, res, next) => {
+      try {
+        const body = instanceEvidenceSchema.parse(req.body ?? {});
+        const state = store.reportInstanceEvidence(
+          req.params.roomId,
+          req.params.instanceId,
+          body.source,
+          body.event,
+          body.details,
+          body.invocationId,
+        );
+        res.json({ ok: true, revision: state.revision, state });
       } catch (error) {
         next(error);
       }

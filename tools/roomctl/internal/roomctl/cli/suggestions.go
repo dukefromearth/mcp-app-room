@@ -83,6 +83,14 @@ var errorSuggestions = map[string][]suggestion{
 	"UPSTREAM_TRANSPORT_ERROR": inspectThenHealthSuggestions,
 	"ROOMD_UNREACHABLE":        startThenHealthSuggestions,
 	"ROOMD_TIMEOUT":            timeoutRetrySuggestions,
+	"EVIDENCE_TIMEOUT": {
+		{Cmd: "roomctl state --room {{room}}", Description: "Inspect current evidence and assurance levels before retrying wait conditions."},
+		{Cmd: "roomctl await --room {{room}} --event {{event}} --max-wait {{timeout}}", Description: "Retry with a larger wait budget when lifecycle events are delayed."},
+	},
+	"REQUIRED_EVIDENCE_MISSING": {
+		{Cmd: "roomctl state --room {{room}}", Description: "Inspect lifecycle evidence and assurance to diagnose missing post-call signals."},
+		{Cmd: "roomctl await --room {{room}} --instance {{instance}} --event {{event}}", Description: "Wait for required lifecycle evidence before presenting user-visible outcomes as proven."},
+	},
 	"INVALID_BASE_URL": {
 		{Cmd: "roomctl health --base-url {{base-url}}", Description: "Use a valid roomd URL including scheme and host."},
 	},
@@ -116,6 +124,10 @@ var defaultCommandSuggestions = map[string][]suggestion{
 	"state-get": {
 		{Cmd: "roomctl state-get --room {{room}} --path state.selectedInstanceId", Description: "Use full response paths rooted at `state`."},
 		{Cmd: "roomctl state --room {{room}}", Description: "Inspect full state to discover available paths."},
+	},
+	"await": {
+		{Cmd: "roomctl state --room {{room}}", Description: "Inspect latest evidence records and assurance summaries for this room."},
+		{Cmd: "roomctl await --room {{room}} --event {{event}} --instance {{instance}}", Description: "Wait for specific instance lifecycle evidence before declaring UI outcomes."},
 	},
 	"tools-list": {
 		{Cmd: "roomctl tool-call --room {{room}} --instance {{instance}} --name {{tool}} --arguments {{arguments-json}}", Description: "Call one of the listed tools."},

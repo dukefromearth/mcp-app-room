@@ -183,6 +183,48 @@ export interface RoomInvocation {
   error?: string;
 }
 
+export type RoomEvidenceSource = "roomd" | "host" | "app";
+
+export type RoomEvidenceEvent =
+  | "room_created"
+  | "mount_applied"
+  | "rpc_sent"
+  | "rpc_succeeded"
+  | "rpc_failed"
+  | "bridge_connected"
+  | "resource_delivered"
+  | "app_initialized"
+  | "app_error";
+
+export interface RoomEvidence {
+  evidenceId: string;
+  revision: number;
+  timestamp: string;
+  source: RoomEvidenceSource;
+  event: RoomEvidenceEvent;
+  instanceId?: string;
+  invocationId?: string;
+  details?: Record<string, unknown>;
+}
+
+export type RoomAssuranceLevel =
+  | "control_plane_ok"
+  | "ui_bridge_connected"
+  | "ui_resource_delivered"
+  | "ui_app_initialized";
+
+export interface InstanceAssurance {
+  instanceId: string;
+  level: RoomAssuranceLevel;
+  proven: string[];
+  unknown: string[];
+}
+
+export interface RoomAssurance {
+  generatedAt: string;
+  instances: InstanceAssurance[];
+}
+
 export interface RoomState {
   roomId: string;
   revision: number;
@@ -190,6 +232,8 @@ export interface RoomState {
   order: string[];
   selectedInstanceId: string | null;
   invocations: RoomInvocation[];
+  evidence: RoomEvidence[];
+  assurance: RoomAssurance;
 }
 
 export type RoomEvent =
@@ -206,7 +250,8 @@ export type RoomEvent =
         | "call-failed"
         | "select"
         | "reorder"
-        | "layout";
+        | "layout"
+        | "evidence";
       state: RoomState;
     }
   | {

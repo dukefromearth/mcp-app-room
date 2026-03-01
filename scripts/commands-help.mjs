@@ -3,7 +3,11 @@
 const commands = [
   {
     name: "npm run dev",
-    description: "Start host + roomd for local development.",
+    description: "Start host + roomd using config/global.yaml (or MCP_APP_ROOM_CONFIG).",
+  },
+  {
+    name: "npm run host:open",
+    description: "Open browser URL derived from global config.",
   },
   {
     name: "npm run verify:fast",
@@ -20,6 +24,10 @@ const commands = [
   {
     name: "npm run roomd:cli -- --help",
     description: "Open roomctl help and usage.",
+  },
+  {
+    name: "npm run fixture:integration-server",
+    description: "Run canonical real MCP fixture used by integration tests.",
   },
 ];
 

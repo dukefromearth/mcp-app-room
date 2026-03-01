@@ -37,7 +37,6 @@ Refactor mount and inspection paths so non-UI servers are first-class and MCP Ap
 - `/Users/duke/Documents/github/mcp-app-room/services/roomd/tests/store.test.ts`
 - `/Users/duke/Documents/github/mcp-app-room/apps/host-web/src/room-canvas.tsx`
 - `/Users/duke/Documents/github/mcp-app-room/apps/host-web/src/README.md`
-- `/Users/duke/Documents/github/mcp-app-room/docs/cli/CLI_QUICK_START.md`
 
 # Implementation Plan
 1. Make `RoomMount.uiResourceUri` optional in state model.

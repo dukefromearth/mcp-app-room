@@ -232,8 +232,7 @@ export function loadSandboxProxy(
 
   // Build sandbox URL with CSP query param for HTTP header-based CSP
   // GOTCHA: host and sandbox are intentionally split across origins. The
-  // sandbox listener is expected on the next local port (e.g. 8080->8081,
-  // 43817->43818) unless explicitly overridden via ?sandbox=...
+  // sandbox listener is expected on the next local port unless explicitly overridden via ?sandbox=...
   const sandboxUrl = new URL(resolveSandboxProxyBaseUrl());
   if (csp) {
     sandboxUrl.searchParams.set("csp", JSON.stringify(csp));

@@ -5,7 +5,6 @@ This directory contains repository governance and architecture documentation.
 ## Quick Links
 
 - `architecture-linting.md`: dependency boundary governance and enforcement policy.
-- `cli/CLI_QUICK_START.md`: canonical CLI usage guide.
 - `repository-setup.md`: local anti-pattern guardrails for scalable repository shape.
 - `architecture/README.md`: curated architecture documentation entrypoint.
 - `roomd-support-matrix.md`: v1 support matrix (core profile + Apps profile).

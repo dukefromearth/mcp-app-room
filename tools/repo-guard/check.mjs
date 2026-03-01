@@ -178,7 +178,17 @@ for (const relPath of trackedFiles) {
     continue;
   }
   const absolutePath = path.join(repoRoot, relPath);
-  const contents = await fs.readFile(absolutePath, "utf8");
+  let contents;
+  try {
+    contents = await fs.readFile(absolutePath, "utf8");
+  } catch (error) {
+    // GOTCHA: git ls-files includes tracked paths that may be deleted in the
+    // working tree but not yet committed. Skip those during guard evaluation.
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+      continue;
+    }
+    throw error;
+  }
   const lines = countLines(contents);
   if (lines > lineCapConfig.defaultMaxLines) {
     addViolation(
