@@ -1,0 +1,4 @@
+interface:
+  display_name: "Roomd CLI Operator"
+  short_description: "Operate roomd CLI with clear user guidance"
+  default_prompt: "Use $roomd-cli-operator to run roomctl commands, explain outcomes in plain language, and suggest practical next steps."

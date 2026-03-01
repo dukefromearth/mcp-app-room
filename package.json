@@ -10,6 +10,7 @@
   "scripts": {
     "help": "node ./scripts/commands-help.mjs",
     "dev": "concurrently \"npm run roomd:start\" \"npm run host:start\"",
+    "check:dev": "npm run verify:fast",
     "host:start": "npm run --workspace apps/host-web start",
     "roomd:start": "node ./scripts/run-roomd.mjs start",
     "roomd:start:strict": "node ./scripts/run-roomd.mjs start --profile strict",
@@ -20,7 +21,9 @@
     "repo:doctor": "node tools/repo-guard/doctor.mjs",
     "setup:hooks": "bash scripts/install-git-hooks.sh",
     "build": "npm run --workspace services/roomd build && npm run --workspace apps/host-web build",
-    "test": "npm run --workspace services/roomd test",
+    "test:roomd": "npm run --workspace services/roomd test",
+    "test:host": "npm run --workspace apps/host-web test",
+    "test": "npm run test:roomd && npm run test:host",
     "test:go": "go test ./...",
     "test:all": "npm run test && npm run test:go",
     "verify:fast": "npm run repo:guard && npm run arch:lint && npm run docs:check && npm run dev-sidebar:check-contracts",
