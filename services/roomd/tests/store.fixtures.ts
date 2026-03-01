@@ -98,13 +98,21 @@ class FakeSession implements McpSession {
 }
 
 class FakeFactory implements McpSessionFactory {
-  constructor(private readonly session: McpSession) {}
+  constructor(
+    private readonly session: McpSession,
+    private readonly hooks?: {
+      onGetSession?: (roomId: string, serverUrl: string) => void;
+      onReleaseSession?: (roomId: string, serverUrl: string) => void;
+    },
+  ) {}
 
-  async getSession(): Promise<McpSession> {
+  async getSession(roomId: string, serverUrl: string): Promise<McpSession> {
+    this.hooks?.onGetSession?.(roomId, serverUrl);
     return this.session;
   }
 
-  async releaseSession(): Promise<void> {
+  async releaseSession(roomId: string, serverUrl: string): Promise<void> {
+    this.hooks?.onReleaseSession?.(roomId, serverUrl);
     return Promise.resolve();
   }
 }
@@ -122,6 +130,8 @@ export interface NewStoreOptions {
   subscribeResult?: Promise<unknown>;
   unsubscribeResult?: Promise<unknown>;
   onNotifyRootsListChanged?: () => void;
+  onGetSession?: (roomId: string, serverUrl: string) => void;
+  onReleaseSession?: (roomId: string, serverUrl: string) => void;
   storeOptions?: {
     serverAllowlist?: string[];
     stdioCommandAllowlist?: string[];
@@ -203,12 +213,18 @@ export function newStore(options: NewStoreOptions = {}): RoomStore {
     options.onNotifyRootsListChanged ?? (() => {}),
   );
 
-  return new RoomStore(new FakeFactory(session), {
-    eventWindowSize: 2,
-    invocationHistoryLimit: 50,
-    idempotencyKeyLimit: 50,
-    ...(options.storeOptions ?? {}),
-  });
+  return new RoomStore(
+    new FakeFactory(session, {
+      onGetSession: options.onGetSession,
+      onReleaseSession: options.onReleaseSession,
+    }),
+    {
+      eventWindowSize: 2,
+      invocationHistoryLimit: 50,
+      idempotencyKeyLimit: 50,
+      ...(options.storeOptions ?? {}),
+    },
+  );
 }
 
 export function commandEnvelope(
