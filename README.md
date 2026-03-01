@@ -32,7 +32,7 @@ e2e/
 
 ```bash
 npm install
-npm run start
+npm run dev
 ```
 
 Global runtime defaults are loaded from:
@@ -50,7 +50,7 @@ Security behavior is profile-driven via `config/global.yaml`:
 - `security.profile: local-dev` enables permissive local behavior
 - `security.profile: strict` enforces restrictive defaults
 
-`npm` scripts (`host:start`, `host:dev`, `roomd:start`, `roomd:dev`, `roomd:cli`) read `config/global.yaml` directly.
+`npm` scripts (`host:start`, `roomd:start`, `roomd:cli`) read `config/global.yaml` directly.
 Use explicit flags for overrides.
 
 To run roomd in strict mode locally:
@@ -88,9 +88,9 @@ Global flags:
 ## Developer Checks
 
 ```bash
-npm run check:dev
-npm run test:all
-npm run conformance:tier1
+npm run verify:fast   # fast local checks
+npm run verify        # default pre-push command
+npm run verify:full   # includes e2e + conformance tier1
 ```
 
 ## MCP Conformance (Tier 1 Gate)
@@ -101,7 +101,6 @@ Run deterministic MCP conformance checks and enforce the Tier 1 threshold:
 npm run conformance:run
 npm run conformance:check
 npm run conformance:tier1
-npm run conformance:tier2   # optional fallback gate
 ```
 
 Current applicable required scenarios for `roomd`'s client boundary:

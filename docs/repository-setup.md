@@ -16,7 +16,8 @@ npm run repo:guard         # block new repo setup anti-patterns
 npm run repo:guard:strict  # show all current violations
 npm run repo:guard:baseline
 npm run setup:hooks        # optional pre-commit hook install
-npm run check:dev          # combined repo + architecture guardrails
+npm run verify:fast        # preferred fast local gate
+npm run verify             # preferred pre-push gate
 ```
 
 ## Target-State Rules

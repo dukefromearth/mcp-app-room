@@ -225,6 +225,38 @@ describe("RoomStore capability + auth policy surfaces", () => {
     await expect(store.inspectServer("https://example.com/mcp")).rejects.toMatchObject({
       statusCode: 403,
       code: "SERVER_NOT_ALLOWLISTED",
+      hint: "Set ROOMD_ALLOW_REMOTE_HTTP_SERVERS=true and configure ROOMD_REMOTE_HTTP_ORIGIN_ALLOWLIST.",
+    });
+  });
+
+  it("returns explicit hint when remote origin allowlist is empty", async () => {
+    const store = newStore({
+      storeOptions: {
+        allowRemoteHttpServers: true,
+        remoteHttpOriginAllowlist: [],
+      },
+    });
+
+    await expect(store.inspectServer("https://example.com/mcp")).rejects.toMatchObject({
+      statusCode: 403,
+      code: "SERVER_NOT_ALLOWLISTED",
+      hint: "Set ROOMD_REMOTE_HTTP_ORIGIN_ALLOWLIST to explicit allowed origins (comma-separated, or *).",
+    });
+  });
+
+  it("returns explicit hint when stdio command is not allowlisted", async () => {
+    const store = newStore({
+      storeOptions: {
+        stdioCommandAllowlist: [],
+      },
+    });
+
+    await expect(
+      store.inspectServer(`stdio://spawn?${new URLSearchParams({ command: "node" }).toString()}`),
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      code: "SERVER_NOT_ALLOWLISTED",
+      hint: "Set ROOMD_STDIO_COMMAND_ALLOWLIST to allowed commands (comma-separated, or *).",
     });
   });
 
