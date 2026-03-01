@@ -18,4 +18,4 @@ When architecture or repository boundaries change:
 
 1. Update the relevant policy docs in this directory.
 2. Regenerate architecture artifacts: `npm run arch`.
-3. Validate local governance checks: `npm run check:dev` and `npm run docs:check`.
+3. Validate local governance checks: `npm run verify:fast`.

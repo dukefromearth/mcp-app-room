@@ -36,7 +36,7 @@ kill <pid> <pid> <pid>
 Start the stack:
 
 ```bash
-npm run start
+npm run dev
 ```
 
 Health checks:
@@ -244,7 +244,7 @@ http://localhost:8080/
 
 - If `create --room demo` returns `409`, the room already exists. Continue with `state`.
 - If host startup fails with `EADDRINUSE`, free ports `8080/8081/8090` and restart.
-- Keep one terminal for `npm run start` and another for CLI commands.
+- Keep one terminal for `npm run dev` and another for CLI commands.
 - Prefer `--output json` for machine-readable output when chaining tools.
 
 ## 6) App-Agnostic Command Dependency Flow

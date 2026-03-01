@@ -33,8 +33,6 @@ Rules 7-9 are intentional target-state constraints. They are stricter than curre
 
 ```bash
 npm run arch:lint          # CI-safe mode (fails only on violations not in known-baseline)
-npm run arch:lint:strict   # strict mode (all violations)
-npm run arch:baseline      # refresh known-violations baseline
 npm run arch               # print all Mermaid graphs to stdout (deps + types + callgraph)
 ```
 
