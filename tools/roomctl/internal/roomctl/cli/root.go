@@ -175,6 +175,7 @@ func newRootCmdWithOptions(opts *rootOptions) *cobra.Command {
 		newCreateCmd(opts),
 		newStateCmd(opts),
 		newStateGetCmd(opts),
+		newAwaitEvidenceCmd(opts),
 		newInspectCmd(opts),
 		newMountCmd(opts),
 		newLifecycleCmd(opts, "hide"),
@@ -525,36 +526,6 @@ func newLayoutCmd(opts *rootOptions) *cobra.Command {
 	return cmd
 }
 
-func newInstanceToolCallCmd(opts *rootOptions) *cobra.Command {
-	var roomID string
-	var instanceID string
-	var name string
-	var arguments string
-
-	cmd := &cobra.Command{
-		Use:   "tool-call --room <room-id> --instance <instance-id> --name <tool-name> [--arguments '{\"k\":1}']",
-		Short: "Call a tool through a mounted instance endpoint",
-		RunE: func(_ *cobra.Command, _ []string) error {
-			obj, err := parse.JSONObject(arguments)
-			if err != nil {
-				return err
-			}
-			return runWithClient(opts, func(ctx context.Context, client *roomd.Client) (roomd.Envelope, error) {
-				return client.InstanceToolCall(ctx, roomID, instanceID, name, obj)
-			})
-		},
-	}
-
-	cmd.Flags().StringVar(&roomID, "room", "", "Room ID")
-	cmd.Flags().StringVar(&instanceID, "instance", "", "Mount instance ID")
-	cmd.Flags().StringVar(&name, "name", "", "Tool name")
-	cmd.Flags().StringVar(&arguments, "arguments", "{}", "Tool arguments as JSON object")
-	_ = cmd.MarkFlagRequired("room")
-	_ = cmd.MarkFlagRequired("instance")
-	_ = cmd.MarkFlagRequired("name")
-	return cmd
-}
-
 func newInstanceCapabilitiesCmd(opts *rootOptions) *cobra.Command {
 	var roomID string
 	var instanceID string
@@ -874,6 +845,7 @@ func runWithClient(opts *rootOptions, run func(ctx context.Context, client *room
 	client, err := roomd.NewClient(opts.baseURL, opts.timeout)
 	if err != nil {
 		envelope := enrichEnvelopeWithSuggestions(opts.command, envelopeForClientError(err))
+		envelope = enrichEnvelopeWithClaims(opts.command, envelope)
 		return printEnvelope(opts.stdout, opts.output, envelope)
 	}
 
@@ -883,10 +855,12 @@ func runWithClient(opts *rootOptions, run func(ctx context.Context, client *room
 	envelope, err := run(ctx, client)
 	if err != nil {
 		failure := enrichEnvelopeWithSuggestions(opts.command, envelopeForClientError(err))
+		failure = enrichEnvelopeWithClaims(opts.command, failure)
 		return printEnvelope(opts.stdout, opts.output, failure)
 	}
 
 	envelope = enrichEnvelopeWithSuggestions(opts.command, envelope)
+	envelope = enrichEnvelopeWithClaims(opts.command, envelope)
 
 	return printEnvelope(opts.stdout, opts.output, envelope)
 }

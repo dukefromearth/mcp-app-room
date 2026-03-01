@@ -36,9 +36,7 @@ export async function connectRoomAppBridge(
   appBridge: HostAppBridge,
   iframe: HTMLIFrameElement,
 ): Promise<void> {
-  const initialized = waitForInitialized(appBridge);
   await connectHostAppBridge(appBridge, iframe);
-  await initialized;
 }
 
 export function newRoomAppBridge(
@@ -47,16 +45,5 @@ export function newRoomAppBridge(
   return createHostAppBridge({
     hasTools: Boolean(capabilities?.tools),
     hasResources: Boolean(capabilities?.resources),
-  });
-}
-
-async function waitForInitialized(appBridge: HostAppBridge): Promise<void> {
-  return new Promise<void>((resolve) => {
-    const original = appBridge.oninitialized;
-    appBridge.oninitialized = (...args) => {
-      appBridge.oninitialized = original;
-      appBridge.oninitialized?.(...args);
-      resolve();
-    };
   });
 }

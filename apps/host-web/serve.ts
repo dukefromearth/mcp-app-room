@@ -1,8 +1,8 @@
 #!/usr/bin/env npx tsx
 /**
  * HTTP servers for the MCP UI example:
- * - Host server (port 8080): serves host HTML files (React and Vanilla examples)
- * - Sandbox server (port 8081): serves sandbox.html with CSP headers
+ * - Host server serves host HTML files (React and Vanilla examples)
+ * - Sandbox server serves sandbox.html with CSP headers
  *
  * Running on separate ports ensures proper origin isolation for security.
  *

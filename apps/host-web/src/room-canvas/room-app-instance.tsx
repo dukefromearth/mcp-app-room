@@ -37,6 +37,23 @@ export function RoomAppInstance({
   useEffect(() => {
     let disposed = false;
 
+    const reportEvidence = async (
+      event: "bridge_connected" | "resource_delivered" | "app_initialized" | "app_error",
+      details?: Record<string, unknown>,
+    ) => {
+      try {
+        await roomdClient.reportInstanceEvidence(
+          roomId,
+          mount.instanceId,
+          event,
+          details,
+        );
+      } catch (error) {
+        // GOTCHA: Evidence reporting must never block app bootstrap.
+        log.warn("Failed to report instance lifecycle evidence", error);
+      }
+    };
+
     const setup = async () => {
       if (!mount.uiResourceUri) {
         setResource(null);
@@ -66,12 +83,22 @@ export function RoomAppInstance({
         roomId,
         instanceId: mount.instanceId,
       });
+      appBridge.oninitialized = () => {
+        void reportEvidence("app_initialized");
+      };
 
+      // GOTCHA: The bridge must be connected before resource-ready, but we
+      // cannot wait for app initialization first because initialization depends
+      // on receiving this resource payload.
       await connectRoomAppBridge(appBridge, iframe);
+      await reportEvidence("bridge_connected");
       await appBridge.sendSandboxResourceReady({
         html: fetched.html,
         csp: fetched.csp,
         permissions: fetched.permissions,
+      });
+      await reportEvidence("resource_delivered", {
+        uiResourceUri: fetched.uiResourceUri,
       });
       appBridgeRef.current = appBridge;
       setBridgeReady(true);
@@ -79,6 +106,10 @@ export function RoomAppInstance({
 
     setup().catch((setupError) => {
       log.error("Failed to initialize room app instance", setupError);
+      void reportEvidence("app_error", {
+        message:
+          setupError instanceof Error ? setupError.message : String(setupError),
+      });
     });
 
     return () => {

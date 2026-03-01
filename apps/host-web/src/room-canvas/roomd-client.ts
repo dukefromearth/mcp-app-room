@@ -9,6 +9,13 @@ export interface RoomdClient {
   fetchRoomState(roomId: string): Promise<RoomState>;
   fetchUiResource(roomId: string, instanceId: string): Promise<UiResource>;
   fetchCapabilities(roomId: string, instanceId: string): Promise<Record<string, unknown> | null>;
+  reportInstanceEvidence(
+    roomId: string,
+    instanceId: string,
+    event: "bridge_connected" | "resource_delivered" | "app_initialized" | "app_error",
+    details?: Record<string, unknown>,
+    invocationId?: string,
+  ): Promise<void>;
   postInstanceJson(roomId: string, instanceId: string, pathSuffix: string, body: unknown): Promise<unknown>;
   getEventsUrl(roomId: string, sinceRevision: number): string;
 }
@@ -55,6 +62,33 @@ export function createRoomdClient(roomdUrl: string): RoomdClient {
         return null;
       }
       return (await parseJson<{ capabilities: Record<string, unknown> }>(response)).capabilities;
+    },
+    async reportInstanceEvidence(
+      roomId: string,
+      instanceId: string,
+      event: "bridge_connected" | "resource_delivered" | "app_initialized" | "app_error",
+      details?: Record<string, unknown>,
+      invocationId?: string,
+    ): Promise<void> {
+      const payload: {
+        source: "host";
+        event: "bridge_connected" | "resource_delivered" | "app_initialized" | "app_error";
+        details?: Record<string, unknown>;
+        invocationId?: string;
+      } = {
+        source: "host",
+        event,
+      };
+      if (details) {
+        payload.details = details;
+      }
+      if (invocationId) {
+        payload.invocationId = invocationId;
+      }
+      const response = await postJson(instancePath(roomId, instanceId, "/evidence"), payload);
+      if (!response.ok) {
+        throw new Error(await readErrorMessage(response));
+      }
     },
     async postInstanceJson(roomId: string, instanceId: string, pathSuffix: string, body: unknown): Promise<unknown> {
       const response = await postJson(instancePath(roomId, instanceId, `/${pathSuffix}`), body);

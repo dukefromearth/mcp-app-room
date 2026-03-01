@@ -14,7 +14,7 @@ A room-first MCP host that renders multiple tool UIs on a shared canvas through 
 ```bash
 npm install
 npm run start
-# Open http://localhost:8080
+# Open the host based on what the port is configured to.
 ```
 
 By default, the host application will try to connect to an MCP server at `http://localhost:3001/mcp`. You can configure this behavior by setting the `SERVERS` environment variable with a JSON array of server URLs:
@@ -36,7 +36,7 @@ npm run --workspace services/roomd start
 Open room mode:
 
 ```text
-http://localhost:8080/?mode=room&roomd=http://localhost:8090&room=demo
+http://localhost:{{host.ports.host}}/?mode=room&roomd={{roomd.baseUrl}}&room={{host.roomId}}
 ```
 
 ## Dev Sidebar
@@ -76,14 +76,14 @@ It connects to `http://127.0.0.1:9222` by default (override with `PLAYWRIGHT_CDP
 This example uses a double-iframe sandbox pattern for secure UI isolation:
 
 ```
-Host (port 8080)
-  └── Outer iframe (port 8081) - sandbox proxy
+Host (port ####)
+  └── Outer iframe (port ####) - sandbox proxy
         └── Inner iframe (srcdoc) - untrusted tool UI
 ```
 
 **Why two iframes?**
 
-- The outer iframe runs on a separate origin (port 8081) preventing direct access to the host
+- The outer iframe runs on a separate origin (port ####) preventing direct access to the host
 - The inner iframe receives HTML via `srcdoc` and is restricted by sandbox attributes
 - Messages flow through the outer iframe which validates and relays them bidirectionally
 

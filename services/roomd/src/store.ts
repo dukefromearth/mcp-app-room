@@ -32,6 +32,9 @@ import type {
   PromptGetParams,
   ResourceSubscriptionParams,
   RoomCommand,
+  RoomEvidence,
+  RoomEvidenceEvent,
+  RoomEvidenceSource,
   RoomEvent,
   RoomInvocation,
   RoomMount,
@@ -54,6 +57,8 @@ interface RoomRuntime {
   invocations: Map<string, RoomInvocation>;
   invocationOrder: string[];
   idempotency: Map<string, IdempotencyRecord>;
+  evidence: RoomEvidence[];
+  evidenceCounter: number;
   events: RoomEvent[];
   subscribers: Set<(event: RoomEvent) => void>;
 }
@@ -67,6 +72,7 @@ interface RoomStoreOptions {
   allowRemoteHttpServers?: boolean;
   remoteHttpOriginAllowlist?: string[];
   clientCapabilityRegistry?: ClientCapabilityRegistry;
+  evidenceHistoryLimit?: number;
 }
 
 interface CommandExecutionResult {
@@ -88,6 +94,7 @@ export class RoomStore {
   private readonly allowRemoteHttpServers: boolean;
   private readonly remoteHttpOriginAllowlist: string[];
   private readonly clientCapabilityRegistry: ClientCapabilityRegistry;
+  private readonly evidenceHistoryLimit: number;
 
   constructor(
     private readonly sessionFactory: McpSessionFactory,
@@ -102,6 +109,7 @@ export class RoomStore {
     this.remoteHttpOriginAllowlist = options.remoteHttpOriginAllowlist ?? [];
     this.clientCapabilityRegistry =
       options.clientCapabilityRegistry ?? new ClientCapabilityRegistry();
+    this.evidenceHistoryLimit = options.evidenceHistoryLimit ?? 1000;
   }
 
   createRoom(roomId: string): RoomState {
@@ -119,10 +127,17 @@ export class RoomStore {
       invocations: new Map(),
       invocationOrder: [],
       idempotency: new Map(),
+      evidence: [],
+      evidenceCounter: 1,
       events: [],
       subscribers: new Set(),
     };
 
+    this.appendEvidence(room, 0, {
+      source: "roomd",
+      event: "room_created",
+      details: { roomId },
+    });
     this.rooms.set(roomId, room);
     return this.buildState(room);
   }
@@ -362,6 +377,26 @@ export class RoomStore {
     );
   }
 
+  reportInstanceEvidence(
+    roomId: string,
+    instanceId: string,
+    source: RoomEvidenceSource,
+    event: RoomEvidenceEvent,
+    details?: Record<string, unknown>,
+    invocationId?: string,
+  ): RoomState {
+    const room = this.requireRoom(roomId);
+    this.requireMount(room, instanceId);
+    this.appendEvidence(room, room.revision + 1, {
+      source,
+      event,
+      instanceId,
+      invocationId,
+      details,
+    });
+    return this.commit(room, "evidence");
+  }
+
   async callInstanceTool(
     roomId: string,
     instanceId: string,
@@ -396,6 +431,15 @@ export class RoomStore {
 
     this.insertInvocation(room, invocation);
     room.selectedInstanceId = instanceId;
+    this.appendEvidence(room, room.revision + 1, {
+      source: "roomd",
+      event: "rpc_sent",
+      instanceId: mount.instanceId,
+      invocationId: invocation.invocationId,
+      details: {
+        toolName: name,
+      },
+    });
     this.commit(room, "call");
 
     try {
@@ -406,6 +450,15 @@ export class RoomStore {
         current.status = "completed";
         current.result = result;
         current.error = undefined;
+        this.appendEvidence(currentRoom, currentRoom.revision + 1, {
+          source: "roomd",
+          event: "rpc_succeeded",
+          instanceId: current.instanceId,
+          invocationId: current.invocationId,
+          details: {
+            toolName: current.toolName,
+          },
+        });
         this.commit(currentRoom, "call-result");
       }
       return result;
@@ -415,6 +468,16 @@ export class RoomStore {
       if (current) {
         current.status = "failed";
         current.error = error instanceof Error ? error.message : String(error);
+        this.appendEvidence(currentRoom, currentRoom.revision + 1, {
+          source: "roomd",
+          event: "rpc_failed",
+          instanceId: current.instanceId,
+          invocationId: current.invocationId,
+          details: {
+            toolName: current.toolName,
+            error: current.error,
+          },
+        });
         this.commit(currentRoom, "call-failed");
       }
       throw error;
@@ -757,6 +820,15 @@ export class RoomStore {
       room.order.push(mount.instanceId);
       room.selectedInstanceId = mount.instanceId;
 
+      this.appendEvidence(room, room.revision + 1, {
+        source: "roomd",
+        event: "mount_applied",
+        instanceId: mount.instanceId,
+        details: {
+          server: mount.server,
+          uiResourceUri: mount.uiResourceUri ?? null,
+        },
+      });
       const state = this.commit(room, "mount");
       return this.successWithState(state);
     } catch (error) {
@@ -964,6 +1036,100 @@ export class RoomStore {
     };
   }
 
+  private appendEvidence(
+    room: RoomRuntime,
+    revision: number,
+    payload: {
+      source: RoomEvidenceSource;
+      event: RoomEvidenceEvent;
+      instanceId?: string;
+      invocationId?: string;
+      details?: Record<string, unknown>;
+    },
+  ): void {
+    room.evidence.push({
+      evidenceId: `ev-${revision}-${room.evidenceCounter++}`,
+      revision,
+      timestamp: new Date().toISOString(),
+      source: payload.source,
+      event: payload.event,
+      instanceId: payload.instanceId,
+      invocationId: payload.invocationId,
+      details: payload.details
+        ? (cloneUnknown(payload.details) as Record<string, unknown>)
+        : undefined,
+    });
+
+    while (room.evidence.length > this.evidenceHistoryLimit) {
+      room.evidence.shift();
+    }
+  }
+
+  private buildAssurance(
+    mounts: RoomMount[],
+    evidence: RoomEvidence[],
+  ): RoomState["assurance"] {
+    const byInstance = new Map<string, RoomEvidence[]>();
+    for (const item of evidence) {
+      if (!item.instanceId) {
+        continue;
+      }
+      const items = byInstance.get(item.instanceId) ?? [];
+      items.push(item);
+      byInstance.set(item.instanceId, items);
+    }
+
+    const instances = mounts.map((mount) => {
+      const instanceEvidence = byInstance.get(mount.instanceId) ?? [];
+      const hasBridge = instanceEvidence.some((item) => item.event === "bridge_connected");
+      const hasResource = instanceEvidence.some((item) => item.event === "resource_delivered");
+      const hasInitialized = instanceEvidence.some((item) => item.event === "app_initialized");
+      const hasAppError = instanceEvidence.some((item) => item.event === "app_error");
+
+      let level: RoomState["assurance"]["instances"][number]["level"] = "control_plane_ok";
+      if (hasBridge) {
+        level = "ui_bridge_connected";
+      }
+      if (hasResource) {
+        level = "ui_resource_delivered";
+      }
+      if (hasInitialized) {
+        level = "ui_app_initialized";
+      }
+
+      const proven = ["Control-plane mount exists and is addressable."];
+      if (hasBridge) {
+        proven.push("Host bridge connected to sandbox transport.");
+      }
+      if (hasResource) {
+        proven.push("Host delivered UI resource payload to sandbox.");
+      }
+      if (hasInitialized) {
+        proven.push("App signaled initialization through protocol callback.");
+      }
+
+      const unknown: string[] = [];
+      if (!hasInitialized) {
+        unknown.push("User-visible render completeness is unknown.");
+      }
+      if (hasAppError) {
+        unknown.push("App reported a runtime error; current visible state may differ.");
+      }
+
+      return {
+        instanceId: mount.instanceId,
+        level,
+        proven,
+        unknown,
+      };
+    });
+
+    return {
+      generatedAt: new Date().toISOString(),
+      instances,
+    };
+  }
+
   private commit(
     room: RoomRuntime,
     reason: Extract<RoomEvent, { type: "state-updated" }>['reason'],
@@ -1005,6 +1171,11 @@ export class RoomStore {
       .filter((invocation): invocation is RoomInvocation => !!invocation)
       .map((invocation) => ({ ...invocation, input: { ...invocation.input } }));
 
+    const evidence = room.evidence.map((item) => ({
+      ...item,
+      details: item.details ? cloneUnknown(item.details) as Record<string, unknown> : undefined,
+    }));
+
     return {
       roomId: room.roomId,
       revision: room.revision,
@@ -1012,6 +1183,8 @@ export class RoomStore {
       order: [...room.order],
       selectedInstanceId: room.selectedInstanceId,
       invocations,
+      evidence,
+      assurance: this.buildAssurance(mounts, evidence),
     };
   }
 

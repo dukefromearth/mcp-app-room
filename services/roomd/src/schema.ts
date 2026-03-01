@@ -206,6 +206,18 @@ export const elicitationUpdateSchema = mountClientElicitationSchema;
 
 export const capabilityPreviewSchema = z.record(z.string(), z.unknown());
 
+export const instanceEvidenceSchema = z.object({
+  source: z.enum(["host", "app"]).default("host"),
+  event: z.enum([
+    "bridge_connected",
+    "resource_delivered",
+    "app_initialized",
+    "app_error",
+  ]),
+  invocationId: z.string().min(1).optional(),
+  details: z.record(z.string(), z.unknown()).optional(),
+});
+
 export const sinceRevisionSchema = z
   .string()
   .regex(/^\d+$/)

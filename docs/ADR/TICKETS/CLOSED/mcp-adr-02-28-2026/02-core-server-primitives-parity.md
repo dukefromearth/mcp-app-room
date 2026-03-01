@@ -38,7 +38,6 @@ Expose missing core primitives through roomd instance endpoints with capability-
 - `/Users/duke/Documents/github/mcp-app-room/tools/roomctl/internal/roomctl/cli/root.go`
 - `/Users/duke/Documents/github/mcp-app-room/tools/roomctl/internal/roomctl/roomd/client.go`
 - `/Users/duke/Documents/github/mcp-app-room/tools/roomctl/internal/roomctl/cli/integration_test.go`
-- `/Users/duke/Documents/github/mcp-app-room/docs/cli/CLI_QUICK_START.md`
 
 # Implementation Plan
 1. Align request/response shapes with MCP schema for each method.
