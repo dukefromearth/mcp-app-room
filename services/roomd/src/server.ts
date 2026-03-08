@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { randomUUID } from "node:crypto";
 import cors from "cors";
 import express from "express";
 import {
@@ -27,6 +28,9 @@ import {
 } from "./dev-security-overrides";
 import { RoomConfigService } from "./room-config/service";
 import { createSqliteRoomConfigRepository } from "./room-config/sqlite-repository";
+import { getRoomdLogger, runWithLogContext, serializeError } from "./logging";
+
+const logger = getRoomdLogger({ component: "server" });
 
 const port = Number.parseInt(process.env.ROOMD_PORT ?? "8090", 10);
 const eventWindowSize = Number.parseInt(
@@ -100,6 +104,41 @@ for (const roomId of parseCommaList(process.env.ROOMD_BOOTSTRAP_ROOMS)) {
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: "1mb" }));
+app.use((req, res, next) => {
+  const requestIdHeader = req.header("x-request-id");
+  const requestId = requestIdHeader?.trim().length
+    ? requestIdHeader.trim()
+    : randomUUID();
+  const startedAt = Date.now();
+
+  runWithLogContext(
+    {
+      requestId,
+      method: req.method,
+      route: req.path,
+    },
+    () => {
+      logger.info("http.request.enter", {
+        hasBody: req.body !== undefined,
+      });
+      res.setHeader("x-request-id", requestId);
+      res.on("finish", () => {
+        logger.info("http.request.exit", {
+          statusCode: res.statusCode,
+          durationMs: Date.now() - startedAt,
+        });
+      });
+      res.on("close", () => {
+        if (!res.writableEnded) {
+          logger.debug("http.request.client_closed", {
+            durationMs: Date.now() - startedAt,
+          });
+        }
+      });
+      next();
+    },
+  );
+});
 
 app.get("/health", (_req, res) => {
   res.json({ ok: true });
@@ -188,65 +227,80 @@ app.use((error: unknown, _req: express.Request, res: express.Response, _next: ex
   const mapped = error instanceof z.ZodError
     ? invalidPayloadError({ issues: error.issues })
     : mapUnknownError(error);
+  logger.warn("http.request.error", {
+    statusCode: mapped.statusCode,
+    code: mapped.code,
+    error: serializeError(error),
+  });
   res.status(mapped.statusCode).json(mapped.toResponseBody());
 });
 
 app.listen(port, () => {
-  console.log(`[roomd] listening on http://localhost:${port}`);
+  logger.info("server.listen", { url: `http://localhost:${port}` });
   if (dangerouslyAllowStdio) {
-    console.warn(
-      "[roomd] WARNING: DANGEROUSLY_ALLOW_STDIO enabled (defaulting empty stdio allowlist to *).",
-    );
+    logger.warn("server.security_override_stdio", {
+      message:
+        "DANGEROUSLY_ALLOW_STDIO enabled; empty stdio allowlist defaults to wildcard.",
+    });
   }
   if (dangerouslyAllowRemoteHttp) {
-    console.warn(
-      "[roomd] WARNING: DANGEROUSLY_ALLOW_REMOTE_HTTP enabled (remote HTTP + origin wildcard allowed when unset).",
-    );
+    logger.warn("server.security_override_remote_http", {
+      message:
+        "DANGEROUSLY_ALLOW_REMOTE_HTTP enabled; remote HTTP and wildcard origins may be accepted.",
+    });
   }
   if (serverAllowlist.length > 0) {
-    console.log(`[roomd] server allowlist: ${serverAllowlist.join(", ")}`);
+    logger.info("server.allowlist", { serverAllowlist });
   }
   if (stdioCommandAllowlist.length > 0) {
-    console.log(
-      `[roomd] stdio command allowlist: ${stdioCommandAllowlist.join(", ")}`,
-    );
+    logger.info("server.stdio_allowlist", { stdioCommandAllowlist });
   }
   if (allowRemoteHttpServers) {
     const origins =
       remoteHttpOriginAllowlist.length > 0
         ? remoteHttpOriginAllowlist.join(", ")
         : "(none)";
-    console.log(`[roomd] remote HTTP enabled; origin allowlist: ${origins}`);
+    logger.info("server.remote_http_enabled", { origins });
   }
   if (Object.keys(httpAuthConfig).length > 0) {
-    console.log(
-      `[roomd] HTTP auth strategies configured for prefixes: ${Object.keys(httpAuthConfig).join(", ")}`,
-    );
+    logger.info("server.http_auth_configured", {
+      prefixes: Object.keys(httpAuthConfig),
+    });
   }
 });
 
 function parseCommaList(value: string | undefined): string[] {
+  logger.debug("parseCommaList.enter", { hasValue: !!value });
   if (!value) {
+    logger.debug("parseCommaList.exit", { items: 0 });
     return [];
   }
 
-  return value
+  const parsed = value
     .split(",")
     .map((entry) => entry.trim())
     .filter((entry) => entry.length > 0);
+  logger.debug("parseCommaList.exit", { items: parsed.length });
+  return parsed;
 }
 
 function parseBoolean(value: string | undefined): boolean {
+  logger.debug("parseBoolean.enter", { hasValue: !!value });
   if (!value) {
+    logger.debug("parseBoolean.exit", { parsed: false });
     return false;
   }
-  return value.trim().toLowerCase() === "true";
+  const parsed = value.trim().toLowerCase() === "true";
+  logger.debug("parseBoolean.exit", { parsed });
+  return parsed;
 }
 
 function parseHttpAuthConfig(
   value: string | undefined,
 ): Record<string, HttpAuthStrategyConfig> {
+  logger.debug("parseHttpAuthConfig.enter", { hasValue: !!value });
   if (!value || value.trim().length === 0) {
+    logger.debug("parseHttpAuthConfig.exit", { prefixes: 0 });
     return {};
   }
 
@@ -270,29 +324,49 @@ function parseHttpAuthConfig(
     parsed = JSON.parse(value);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    logger.debug("parseHttpAuthConfig.json_error", {
+      error: serializeError(error),
+    });
     throw new Error(`ROOMD_HTTP_AUTH_CONFIG must be valid JSON: ${message}`);
   }
 
-  return authConfigSchema.parse(parsed);
+  const validated = authConfigSchema.parse(parsed);
+  logger.debug("parseHttpAuthConfig.exit", {
+    prefixes: Object.keys(validated).length,
+  });
+  return validated;
 }
 
 function parseSinceRevision(
   sinceRevisionQuery: unknown,
   lastEventIdHeader: string | undefined,
 ): number | undefined {
+  logger.debug("parseSinceRevision.enter", {
+    hasSinceRevisionQuery: typeof sinceRevisionQuery === "string",
+    hasLastEventIdHeader: !!lastEventIdHeader,
+  });
   if (typeof sinceRevisionQuery === "string" && sinceRevisionQuery.length > 0) {
-    return sinceRevisionSchema.parse(sinceRevisionQuery);
+    const parsed = sinceRevisionSchema.parse(sinceRevisionQuery);
+    logger.debug("parseSinceRevision.exit", { source: "query", parsed });
+    return parsed;
   }
 
   if (lastEventIdHeader && lastEventIdHeader.length > 0) {
-    return sinceRevisionSchema.parse(lastEventIdHeader);
+    const parsed = sinceRevisionSchema.parse(lastEventIdHeader);
+    logger.debug("parseSinceRevision.exit", { source: "last-event-id", parsed });
+    return parsed;
   }
 
+  logger.debug("parseSinceRevision.exit", { source: "none" });
   return undefined;
 }
 
 function writeSseEvent(res: express.Response, event: unknown): void {
   const eventObj = event as { type: string; revision: number };
+  logger.debug("writeSseEvent", {
+    type: eventObj.type,
+    revision: eventObj.revision,
+  });
   res.write(`id: ${eventObj.revision}\n`);
   res.write(`event: ${eventObj.type}\n`);
   res.write(`data: ${JSON.stringify(event)}\n\n`);

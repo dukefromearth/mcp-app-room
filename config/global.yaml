@@ -4,7 +4,7 @@
 version: 1
 
 roomd:
-  baseUrl: "http://localhost:8090"
+  baseUrl: "http://localhost:8092"
 
 host:
   mode: "room"
@@ -13,12 +13,12 @@ host:
   # roomConfigId: "banking-room"
   # roomConfigNamespace: "default"
   ports:
-    host: 8080
-    sandbox: 8081
+    host: 8980
+    sandbox: 8981
   browser:
     remoteDebuggingPort: 9222
   servers:
-    - "http://localhost:3001/mcp"
+    - "http://localhost:3101/mcp"
 
 security:
   # strict | local-dev

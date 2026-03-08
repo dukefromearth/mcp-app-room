@@ -13,6 +13,7 @@ import type {
   PromptGetParams,
   ResourceSubscriptionParams,
 } from "./types";
+import { getRoomdLogger } from "./logging";
 
 interface ParsedSchema<TParsed> {
   parse(input: unknown): TParsed;
@@ -25,11 +26,14 @@ interface InstanceRouteSchemas {
   unsubscribeRequestParamsSchema: ParsedSchema<ResourceSubscriptionParams>;
 }
 
+const logger = getRoomdLogger({ component: "instance_routes" });
+
 export function registerInstanceRoutes(
   app: express.Express,
   store: RoomStore,
   schemas: InstanceRouteSchemas,
 ): void {
+  logger.info("registerInstanceRoutes.enter");
   app.get("/rooms/:roomId/instances/:instanceId/ui", async (req, res, next) => {
     try {
       const resource = await store.getInstanceUiResource(
@@ -351,4 +355,5 @@ export function registerInstanceRoutes(
       }
     },
   );
+  logger.info("registerInstanceRoutes.exit");
 }

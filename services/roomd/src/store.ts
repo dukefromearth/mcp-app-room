@@ -16,6 +16,7 @@ import {
   parseToolsPage,
 } from "./store/parsing";
 import { assertServerAllowed as assertServerAllowedByPolicy } from "./store/server-policy";
+import { getRoomdLogger, serializeError } from "./logging";
 import type {
   ClientRoot,
   CompletionCompleteParams,
@@ -85,6 +86,7 @@ const INSPECTION_ROOM_ID = "__inspect__";
 export class RoomStore {
   private readonly rooms = new Map<string, RoomRuntime>();
   private invocationCounter = 1;
+  private readonly logger = getRoomdLogger({ component: "room_store" });
 
   private readonly eventWindowSize: number;
   private readonly invocationHistoryLimit: number;
@@ -203,6 +205,11 @@ export class RoomStore {
     roomId: string,
     envelope: CommandEnvelope,
   ): Promise<CommandExecutionResult> {
+    this.logger.info("applyCommand.enter", {
+      roomId,
+      commandType: envelope.command.type,
+      idempotencyKey: envelope.idempotencyKey,
+    });
     const room = this.requireRoom(roomId);
 
     const commandHash = stableStringify(envelope.command);
@@ -238,6 +245,12 @@ export class RoomStore {
       room.idempotency.delete(firstKey);
     }
 
+    this.logger.info("applyCommand.exit", {
+      roomId,
+      commandType: envelope.command.type,
+      statusCode: result.statusCode,
+      idempotencySize: room.idempotency.size,
+    });
     return result;
   }
 
@@ -262,13 +275,20 @@ export class RoomStore {
   }
 
   async inspectServer(serverUrl: string): Promise<ServerInspection> {
+    this.logger.info("inspectServer.enter", { serverUrl });
     const normalizedServer = normalizeServerTarget(serverUrl);
     this.assertServerAllowed(normalizedServer);
     try {
-      return await this.inspectServerWithSession(
+      const inspection = await this.inspectServerWithSession(
         INSPECTION_ROOM_ID,
         normalizedServer,
       );
+      this.logger.info("inspectServer.exit", {
+        serverUrl: normalizedServer,
+        tools: inspection.tools.length,
+        uiCandidates: inspection.uiCandidates.length,
+      });
+      return inspection;
     } finally {
       await this.sessionFactory.releaseSession(INSPECTION_ROOM_ID, normalizedServer);
     }
@@ -403,6 +423,12 @@ export class RoomStore {
     name: string,
     input: Record<string, unknown>,
   ): Promise<unknown> {
+    this.logger.info("callInstanceTool.enter", {
+      roomId,
+      instanceId,
+      toolName: name,
+      inputKeys: Object.keys(input),
+    });
     const room = this.requireRoom(roomId);
     const mount = this.requireMount(room, instanceId);
     ensureServerCapability(mount.session, "tools", "tools/call");
@@ -428,9 +454,9 @@ export class RoomStore {
       name,
       input,
     );
-
     this.insertInvocation(room, invocation);
-    room.selectedInstanceId = instanceId;
+    // GOTCHA: Tool calls can originate from background/hidden iframes; do not
+    // couple invocation traffic to UI selection, or selectedInstanceId will churn.
     this.appendEvidence(room, room.revision + 1, {
       source: "roomd",
       event: "rpc_sent",
@@ -461,6 +487,12 @@ export class RoomStore {
         });
         this.commit(currentRoom, "call-result");
       }
+      this.logger.info("callInstanceTool.exit", {
+        roomId,
+        instanceId,
+        toolName: name,
+        status: "completed",
+      });
       return result;
     } catch (error) {
       const currentRoom = this.requireRoom(roomId);
@@ -480,6 +512,12 @@ export class RoomStore {
         });
         this.commit(currentRoom, "call-failed");
       }
+      this.logger.debug("callInstanceTool.error", {
+        roomId,
+        instanceId,
+        toolName: name,
+        error: serializeError(error),
+      });
       throw error;
     }
   }
@@ -601,6 +639,7 @@ export class RoomStore {
     roomId: string,
     serverUrl: string,
   ): Promise<ServerInspection> {
+    this.logger.info("inspectServerWithSession.enter", { roomId, serverUrl });
     this.assertServerAllowed(serverUrl);
     const session = await this.getSession(roomId, serverUrl);
     const tools = await this.collectToolCatalog(session);
@@ -624,7 +663,7 @@ export class RoomStore {
     const autoMountable = uiCandidates.length === 1;
     const recommendedUiResourceUri = autoMountable ? uiCandidates[0] : undefined;
 
-    return {
+    const inspection = {
       server: serverUrl,
       tools,
       uiCandidates,
@@ -632,6 +671,14 @@ export class RoomStore {
       recommendedUiResourceUri,
       exampleCommands: buildExampleCommands(serverUrl, uiCandidates),
     };
+    this.logger.info("inspectServerWithSession.exit", {
+      roomId,
+      serverUrl,
+      tools: inspection.tools.length,
+      uiCandidates: inspection.uiCandidates.length,
+      autoMountable: inspection.autoMountable,
+    });
+    return inspection;
   }
 
   private async collectToolCatalog(session: McpSession): Promise<RoomMountTool[]> {
@@ -765,6 +812,11 @@ export class RoomStore {
     room: RoomRuntime,
     command: Extract<RoomCommand, { type: "mount" }>,
   ): Promise<CommandExecutionResult> {
+    this.logger.info("handleMount.enter", {
+      roomId: room.roomId,
+      instanceId: command.instanceId,
+      server: command.server,
+    });
     if (room.mounts.has(command.instanceId)) {
       throw new HttpError(
         409,
@@ -830,13 +882,25 @@ export class RoomStore {
         },
       });
       const state = this.commit(room, "mount");
-      return this.successWithState(state);
+      const response = this.successWithState(state);
+      this.logger.info("handleMount.exit", {
+        roomId: room.roomId,
+        instanceId: command.instanceId,
+        revision: state.revision,
+      });
+      return response;
     } catch (error) {
       if (!hadSessionForServer) {
         room.sessions.delete(normalizedServer);
         this.clientCapabilityRegistry.clear(room.roomId, normalizedServer);
         await this.sessionFactory.releaseSession(room.roomId, normalizedServer);
       }
+      this.logger.debug("handleMount.error", {
+        roomId: room.roomId,
+        instanceId: command.instanceId,
+        server: normalizedServer,
+        error: serializeError(error),
+      });
       throw error;
     }
   }
@@ -862,6 +926,7 @@ export class RoomStore {
     room: RoomRuntime,
     instanceId: string,
   ): Promise<CommandExecutionResult> {
+    this.logger.info("handleUnmount.enter", { roomId: room.roomId, instanceId });
     const mount = this.requireMount(room, instanceId);
     const mountedServer = mount.server;
 
@@ -894,7 +959,13 @@ export class RoomStore {
     );
 
     const state = this.commit(room, "unmount");
-    return this.successWithState(state);
+    const response = this.successWithState(state);
+    this.logger.info("handleUnmount.exit", {
+      roomId: room.roomId,
+      instanceId,
+      revision: state.revision,
+    });
+    return response;
   }
 
   private handleSelect(

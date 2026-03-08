@@ -6,6 +6,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   loadGlobalConfig,
+  resolveBootstrapRooms,
   resolveGlobalConfigPath,
 } from "./global-config.mjs";
 
@@ -124,16 +125,21 @@ if (profile !== "strict" && profile !== "local-dev") {
   process.exit(1);
 }
 
+const bootstrapRooms = resolveBootstrapRooms(config);
+
 const env = {
   ...process.env,
   MCP_APP_ROOM_CONFIG: configPath,
   ROOMD_PORT: String(config.roomd.port),
+  // GOTCHA: browsers can reconnect to the previous room EventSource before the
+  // host process has time to recreate the default room during `npm run dev`.
+  ROOMD_BOOTSTRAP_ROOMS: bootstrapRooms.join(","),
   DANGEROUSLY_ALLOW_STDIO: profile === "local-dev" ? "true" : "false",
   DANGEROUSLY_ALLOW_REMOTE_HTTP: profile === "local-dev" ? "true" : "false",
 };
 
 console.log(
-  `[roomd] config=${configPath} baseUrl=${config.roomd.baseUrl} profile=${profile}`,
+  `[roomd] config=${configPath} baseUrl=${config.roomd.baseUrl} profile=${profile} bootstrapRooms=${bootstrapRooms.join(",") || "(none)"}`,
 );
 
 const child = spawn(

@@ -363,6 +363,7 @@ describe("RoomStore", () => {
         reasons.push(event.reason);
       }
     });
+    const selectedBeforeCall = store.getState("demo").selectedInstanceId;
 
     const result = await store.callInstanceTool("demo", "inst-1", "replace", {
       sessionId: "demo",
@@ -378,7 +379,7 @@ describe("RoomStore", () => {
     const invocation = state.invocations.at(-1);
     expect(invocation?.toolName).toBe("replace");
     expect(invocation?.status).toBe("completed");
-    expect(state.selectedInstanceId).toBe("inst-1");
+    expect(state.selectedInstanceId).toBe(selectedBeforeCall);
   });
 
   it("returns snapshot-reset when replay window is unavailable", async () => {

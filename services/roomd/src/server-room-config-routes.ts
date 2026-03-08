@@ -7,11 +7,15 @@ import {
   roomConfigUpsertSchema,
 } from "./schema";
 import { RoomConfigService } from "./room-config/service";
+import { getRoomdLogger } from "./logging";
+
+const logger = getRoomdLogger({ component: "room_config_routes" });
 
 export function registerRoomConfigRoutes(
   app: express.Express,
   roomConfigService: RoomConfigService,
 ): void {
+  logger.info("registerRoomConfigRoutes.enter");
   app.get("/room-configs", async (req, res, next) => {
     try {
       const namespace = parseNamespaceQuery(req.query.namespace);
@@ -114,11 +118,16 @@ export function registerRoomConfigRoutes(
       next(error);
     }
   });
+  logger.info("registerRoomConfigRoutes.exit");
 }
 
 function parseNamespaceQuery(value: unknown): string {
+  logger.debug("parseNamespaceQuery.enter", { type: typeof value });
   if (typeof value === "string" && value.trim().length > 0) {
-    return value.trim();
+    const parsed = value.trim();
+    logger.debug("parseNamespaceQuery.exit", { namespace: parsed });
+    return parsed;
   }
+  logger.debug("parseNamespaceQuery.exit", { namespace: "default" });
   return "default";
 }

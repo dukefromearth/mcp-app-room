@@ -85,9 +85,7 @@ Global flags:
 ## Developer Checks
 
 ```bash
-npm run verify:fast   # fast local checks
 npm run verify        # default pre-push command
-npm run verify:full   # includes e2e + conformance tier1
 ```
 
 ## Real MCP Fixture
@@ -155,9 +153,6 @@ Stream Mermaid graphs to stdout (no files written):
 
 ```bash
 npm run arch                     # deps + types + callgraph (default)
-npm run arch -- --deps           # deps only
-npm run arch -- --types          # types only
-npm run arch -- --callgraph      # callgraph only
 ```
 
 ## Repository Guardrails
