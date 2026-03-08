@@ -9,7 +9,8 @@ This note tracks the strict-mode initialization idempotency dependency gap in
 
 - Upstream issue: [modelcontextprotocol/ext-apps#542](https://github.com/modelcontextprotocol/ext-apps/issues/542)
 - Upstream PR: [modelcontextprotocol/ext-apps#543](https://github.com/modelcontextprotocol/ext-apps/pull/543)
-- Upstream state: issue `OPEN`, PR `OPEN` (not merged, not released)
+- Upstream state: issue `OPEN`, PR `OPEN` (not merged)
+- Latest npm release observed: `@modelcontextprotocol/ext-apps@1.2.0` (published 2026-03-06)
 
 ## Local Reproducer Signals
 
@@ -32,9 +33,22 @@ duplicate lifecycle progression.
 
 - Host room bootstrap keeps bridge wiring + evidence reporting isolated in
   `apps/host-web/src/room-canvas/room-app-instance.tsx`.
-- Dependency is pinned to exact `@modelcontextprotocol/ext-apps@1.1.2` in
-  workspace manifests to prevent unreviewed semver drift while upstream fix is
-  unresolved.
+- Dependency is pinned to exact `@modelcontextprotocol/ext-apps@1.2.0` in
+  workspace manifests to prevent unreviewed semver drift while upstream
+  lifecycle issue remains open.
+
+## Validation Snapshot (2026-03-08)
+
+Pin trial + required gates on `1.2.0`:
+
+- `npm run verify` passed
+- `npm run test:integration:real-mcp` passed
+
+Interpretation:
+
+- This repository's strict lifecycle locks pass on `1.2.0`.
+- Upstream strict-init tracking issue remains open, so keep this ticket as an
+  external dependency watch until upstream closes with root-cause resolution.
 
 ## Blocker Record
 
