@@ -8,6 +8,11 @@ the Apps extension profile.
   "protocolSpecVersion": "2025-11-25",
   "conformanceTier": "tier1",
   "applicableRequiredScenarios": ["initialize", "tools_call"],
+  "lifecycleIngress": {
+    "canonicalRoute": "/rooms/:roomId/instances/:instanceId/lifecycle",
+    "compatibilityRoute": "/rooms/:roomId/instances/:instanceId/evidence",
+    "compatibilityStatus": "supported-deprecated"
+  },
   "transports": {
     "streamable-http": "supported",
     "legacy-sse": "supported-deprecated",
@@ -41,6 +46,13 @@ the Apps extension profile.
 | `streamable-http` | Supported | Preferred transport for HTTP MCP servers. |
 | `legacy-sse` | Supported (Deprecated) | Supported for compatibility; see deprecation policy. |
 | `stdio` | Supported | Controlled by command allowlist policy. |
+
+## Lifecycle Ingress Contract
+
+| Route | Status | Notes |
+| --- | --- | --- |
+| `POST /rooms/:roomId/instances/:instanceId/lifecycle` | Supported (Canonical) | Required route for first-party lifecycle ingestion. |
+| `POST /rooms/:roomId/instances/:instanceId/evidence` | Supported (Deprecated) | Compatibility alias only; removal tracked by issue `#43`. |
 
 ### Capability Support
 
