@@ -2,15 +2,11 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
-	"os/signal"
-	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -33,11 +29,6 @@ type rootOptions struct {
 	stderr     io.Writer
 	stdout     io.Writer
 	command    string
-}
-
-type suggestion struct {
-	Cmd         string `json:"cmd"`
-	Description string `json:"description"`
 }
 
 func NewRootCmd() *cobra.Command {
@@ -782,47 +773,6 @@ func newInstanceResourceUnsubscribeCmd(opts *rootOptions) *cobra.Command {
 	return cmd
 }
 
-func mapStringAnyToString(values map[string]any) (map[string]string, error) {
-	result := make(map[string]string, len(values))
-	for key, value := range values {
-		asString, ok := value.(string)
-		if !ok {
-			return nil, fmt.Errorf("expected string value for key %q", key)
-		}
-		result[key] = asString
-	}
-	return result, nil
-}
-
-func lookupByPath(root any, valuePath string) (any, bool) {
-	current := root
-	segments := strings.Split(valuePath, ".")
-	for _, segment := range segments {
-		if strings.TrimSpace(segment) == "" {
-			return nil, false
-		}
-
-		switch typed := current.(type) {
-		case map[string]any:
-			next, ok := typed[segment]
-			if !ok {
-				return nil, false
-			}
-			current = next
-		case []any:
-			index, err := strconv.Atoi(segment)
-			if err != nil || index < 0 || index >= len(typed) {
-				return nil, false
-			}
-			current = typed[index]
-		default:
-			return nil, false
-		}
-	}
-
-	return current, true
-}
-
 func enrichEnvelopeWithSuggestions(command string, env roomd.Envelope) roomd.Envelope {
 	body, ok := env.Body.(map[string]any)
 	if !ok {
@@ -841,174 +791,6 @@ func enrichEnvelopeWithSuggestions(command string, env roomd.Envelope) roomd.Env
 	copied["suggestions"] = suggestions
 	env.Body = copied
 	return env
-}
-
-func runWithClient(opts *rootOptions, run func(ctx context.Context, client *roomd.Client) (roomd.Envelope, error)) error {
-	if opts.timeout <= 0 {
-		return errors.New("--timeout must be > 0")
-	}
-
-	client, err := roomd.NewClient(opts.baseURL, opts.timeout)
-	if err != nil {
-		envelope := enrichEnvelopeWithSuggestions(opts.command, envelopeForClientError(err))
-		envelope = enrichEnvelopeWithClaims(opts.command, envelope)
-		return printEnvelope(opts.stdout, opts.output, envelope)
-	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
-	envelope, err := run(ctx, client)
-	if err != nil {
-		failure := enrichEnvelopeWithSuggestions(opts.command, envelopeForClientError(err))
-		failure = enrichEnvelopeWithClaims(opts.command, failure)
-		return printEnvelope(opts.stdout, opts.output, failure)
-	}
-
-	envelope = enrichEnvelopeWithSuggestions(opts.command, envelope)
-	envelope = enrichEnvelopeWithClaims(opts.command, envelope)
-
-	return printEnvelope(opts.stdout, opts.output, envelope)
-}
-
-func envelopeForClientError(err error) roomd.Envelope {
-	message := strings.TrimSpace(err.Error())
-	status := 502
-	code := "ROOMD_CLIENT_ERROR"
-	userMessage := "roomctl request failed"
-
-	switch {
-	case strings.Contains(message, "base URL"):
-		status = 400
-		code = "INVALID_BASE_URL"
-		userMessage = "roomctl base URL is invalid"
-	case strings.Contains(message, "connection refused"):
-		status = 503
-		code = "ROOMD_UNREACHABLE"
-		userMessage = "roomd is not reachable at the configured base URL"
-	case strings.Contains(message, "i/o timeout"), strings.Contains(message, "context deadline exceeded"):
-		status = 504
-		code = "ROOMD_TIMEOUT"
-		userMessage = "roomd request timed out"
-	}
-
-	return roomd.Envelope{
-		Status: status,
-		Body: map[string]any{
-			"ok":      false,
-			"code":    code,
-			"error":   userMessage,
-			"details": map[string]any{"cause": message},
-		},
-	}
-}
-
-func printEnvelope(out io.Writer, format string, envelope roomd.Envelope) error {
-	if format == "pretty" && envelope.Status >= 400 {
-		if body, ok := envelope.Body.(map[string]any); ok {
-			if printPrettyError(out, envelope.Status, body) {
-				printPrettySuggestions(out, body)
-				return nil
-			}
-		}
-	}
-
-	var (
-		data []byte
-		err  error
-	)
-
-	switch format {
-	case "json":
-		data, err = json.Marshal(envelope)
-	case "pretty":
-		data, err = json.MarshalIndent(envelope, "", "  ")
-	default:
-		return fmt.Errorf("unsupported output format: %s", format)
-	}
-	if err != nil {
-		return fmt.Errorf("marshal output: %w", err)
-	}
-
-	_, err = fmt.Fprintln(out, string(data))
-	return err
-}
-
-func printPrettySuggestions(out io.Writer, body map[string]any) {
-	entries, ok := body["suggestions"]
-	if !ok || entries == nil {
-		return
-	}
-
-	suggestions := parseSuggestions(entries)
-	if len(suggestions) == 0 {
-		return
-	}
-
-	_, _ = fmt.Fprintln(out, "suggested next steps:")
-	for _, item := range suggestions {
-		if strings.TrimSpace(item.Cmd) == "" {
-			continue
-		}
-		if strings.TrimSpace(item.Description) == "" {
-			_, _ = fmt.Fprintf(out, "  - %s\n", item.Cmd)
-			continue
-		}
-		_, _ = fmt.Fprintf(out, "  - %s  # %s\n", item.Cmd, item.Description)
-	}
-}
-
-func parseSuggestions(raw any) []suggestion {
-	switch typed := raw.(type) {
-	case []suggestion:
-		return typed
-	case []any:
-		result := make([]suggestion, 0, len(typed))
-		for _, entry := range typed {
-			asMap, ok := entry.(map[string]any)
-			if !ok {
-				continue
-			}
-			cmd, _ := asMap["cmd"].(string)
-			description, _ := asMap["description"].(string)
-			if strings.TrimSpace(cmd) == "" {
-				continue
-			}
-			result = append(result, suggestion{
-				Cmd:         cmd,
-				Description: description,
-			})
-		}
-		return result
-	default:
-		return nil
-	}
-}
-
-func printPrettyError(out io.Writer, status int, body map[string]any) bool {
-	message, _ := body["error"].(string)
-	if strings.TrimSpace(message) == "" {
-		return false
-	}
-
-	code, _ := body["code"].(string)
-	if strings.TrimSpace(code) == "" {
-		code = "UNKNOWN_ERROR"
-	}
-
-	_, _ = fmt.Fprintf(out, "error [%s] (%d): %s\n", code, status, message)
-
-	if hint, _ := body["hint"].(string); strings.TrimSpace(hint) != "" {
-		_, _ = fmt.Fprintf(out, "hint: %s\n", hint)
-	}
-
-	if details, ok := body["details"]; ok && details != nil {
-		if encoded, err := json.Marshal(details); err == nil {
-			_, _ = fmt.Fprintf(out, "details: %s\n", string(encoded))
-		}
-	}
-
-	return true
 }
 
 func resolveIdempotencyKey(value string) string {
