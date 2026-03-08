@@ -21,16 +21,15 @@ const fixtureServerPath = path.join(
   "main.mjs",
 );
 
-test.describe("roomctl tool-call default await with local real server", () => {
+test.describe("roomctl lifecycle evidence with full real MCP fixture + host", () => {
   test.describe.configure({ mode: "serial" });
-  test.setTimeout(120_000);
-  // GOTCHA: this suite intentionally does not boot host-web, so app_initialized
-  // evidence is expected to remain absent unless explicitly injected.
+  test.setTimeout(240_000);
 
   let tempDir = "";
   let configPath = "";
   let roomId = "";
   let roomdPort = 0;
+  let hostPort = 0;
   let integrationPort = 0;
   let roomdBaseUrl = "";
   let integrationServerUrl = "";
@@ -38,18 +37,19 @@ test.describe("roomctl tool-call default await with local real server", () => {
 
   let integrationProcess: ChildProcessWithoutNullStreams | undefined;
   let roomdProcess: ChildProcessWithoutNullStreams | undefined;
+  let hostProcess: ChildProcessWithoutNullStreams | undefined;
 
   test.beforeAll(async () => {
     roomdPort = await getFreePort();
-    const hostPort = await getFreePort();
+    hostPort = await getFreePort();
     const sandboxPort = await getFreePort();
     integrationPort = await getFreePort();
 
     roomdBaseUrl = `http://127.0.0.1:${roomdPort}`;
     integrationServerUrl = `http://127.0.0.1:${integrationPort}/mcp`;
-    roomId = `await-real-${Date.now()}`;
+    roomId = `host-lifecycle-${Date.now()}`;
 
-    tempDir = await mkdtemp(path.join(tmpdir(), "roomctl-await-real-"));
+    tempDir = await mkdtemp(path.join(tmpdir(), "roomctl-host-lifecycle-"));
     configPath = path.join(tempDir, "global.yaml");
     await writeFile(
       configPath,
@@ -57,6 +57,8 @@ test.describe("roomctl tool-call default await with local real server", () => {
         "version: 1",
         "roomd:",
         `  baseUrl: \"${roomdBaseUrl}\"`,
+        "  bootstrapRooms:",
+        `    - \"${roomId}\"`,
         "host:",
         "  mode: \"room\"",
         `  roomId: \"${roomId}\"`,
@@ -73,19 +75,15 @@ test.describe("roomctl tool-call default await with local real server", () => {
       ].join("\n"),
     );
 
-    integrationProcess = spawn(
-      process.execPath,
-      [fixtureServerPath],
-      {
-        cwd: repoRoot,
-        env: {
-          ...process.env,
-          PORT: String(integrationPort),
-          PLAYWRIGHT_TEST: "1",
-        },
-        stdio: "pipe",
+    integrationProcess = spawn(process.execPath, [fixtureServerPath], {
+      cwd: repoRoot,
+      env: {
+        ...process.env,
+        PORT: String(integrationPort),
+        PLAYWRIGHT_TEST: "1",
       },
-    );
+      stdio: "pipe",
+    });
     pipeLogs("[fixture-mcp]", integrationProcess);
     await waitForHttp(integrationServerUrl, (status) => status > 0, 20_000);
 
@@ -103,11 +101,6 @@ test.describe("roomctl tool-call default await with local real server", () => {
     );
     pipeLogs("[roomd]", roomdProcess);
     await waitForHttp(`${roomdBaseUrl}/health`, (status) => status === 200, 30_000);
-
-    const create = await runRoomctl(configPath, ["create", "--room", roomId]);
-    if (create.status !== 201 && create.status !== 200 && create.status !== 409) {
-      throw new Error(`create failed: status=${create.status} body=${JSON.stringify(create.body)}`);
-    }
 
     const inspect = await runRoomctl(configPath, [
       "inspect",
@@ -135,12 +128,29 @@ test.describe("roomctl tool-call default await with local real server", () => {
       "--ui-resource-uri",
       uiResourceUri,
     ]);
-    if (mount.status !== 200) {
+    if (mount.status !== 200 && mount.status !== 409) {
       throw new Error(`mount failed: status=${mount.status} body=${JSON.stringify(mount.body)}`);
     }
+
+    hostProcess = spawn(
+      process.execPath,
+      ["scripts/run-host.mjs", "start", "--config", configPath],
+      {
+        cwd: repoRoot,
+        env: {
+          ...process.env,
+          PLAYWRIGHT_TEST: "1",
+          AUTO_LAUNCH_BROWSER: "false",
+        },
+        stdio: "pipe",
+      },
+    );
+    pipeLogs("[host]", hostProcess);
+    await waitForHttp(`http://127.0.0.1:${hostPort}/api/host-config`, (status) => status === 200, 45_000);
   });
 
   test.afterAll(async () => {
+    await terminateProcess(hostProcess);
     await terminateProcess(roomdProcess);
     await terminateProcess(integrationProcess);
     if (tempDir) {
@@ -148,8 +158,32 @@ test.describe("roomctl tool-call default await with local real server", () => {
     }
   });
 
-  test("await app_initialized times out before any host lifecycle events", async () => {
-    const awaited = await runRoomctl(configPath, [
+  test("host mount reaches app_initialized and default tool-call await succeeds", async ({
+    page,
+  }) => {
+    await page.goto(`http://127.0.0.1:${hostPort}/?theme=hide`);
+    await expect(page.locator('[data-instance-id="integration-1"]')).toBeVisible({
+      timeout: 40_000,
+    });
+
+    const bridgeConnected = await runRoomctl(configPath, [
+      "await",
+      "--room",
+      roomId,
+      "--instance",
+      "integration-1",
+      "--event",
+      "bridge_connected",
+      "--max-wait",
+      "90s",
+      "--poll-interval",
+      "200ms",
+    ]);
+    expect(bridgeConnected.status).toBe(200);
+    expect(bridgeConnected.body.event).toBe("bridge_connected");
+
+    const bridgeRevision = Number(bridgeConnected.body.revision ?? 0);
+    const appInitialized = await runRoomctl(configPath, [
       "await",
       "--room",
       roomId,
@@ -157,17 +191,27 @@ test.describe("roomctl tool-call default await with local real server", () => {
       "integration-1",
       "--event",
       "app_initialized",
+      "--since-revision",
+      String(Math.max(0, bridgeRevision - 1)),
       "--max-wait",
-      "1500ms",
+      "90s",
       "--poll-interval",
-      "100ms",
+      "200ms",
     ]);
-    expect(awaited.status).toBe(408);
-    expect(awaited.body.code).toBe("EVIDENCE_TIMEOUT");
-  });
+    expect(appInitialized.status).toBe(200);
+    expect(appInitialized.body.event).toBe("app_initialized");
 
-  test("tool-call defaults to await and fails when app_initialized evidence is missing", async () => {
-    const defaultCall = await runRoomctl(configPath, [
+    const state = await runRoomctl(configPath, [
+      "state",
+      "--room",
+      roomId,
+    ]);
+    expect(state.status).toBe(200);
+    const instances = (state.body.state?.assurance?.instances ?? []) as Array<Record<string, any>>;
+    const assurance = instances.find((instance) => instance.instanceId === "integration-1");
+    expect(assurance?.level).toBe("ui_app_initialized");
+
+    const call = await runRoomctl(configPath, [
       "tool-call",
       "--room",
       roomId,
@@ -178,32 +222,11 @@ test.describe("roomctl tool-call default await with local real server", () => {
       "--arguments",
       "{}",
       "--evidence-max-wait",
-      "1500ms",
+      "5s",
       "--evidence-poll-interval",
       "100ms",
     ]);
-    expect(defaultCall.status).toBe(412);
-    expect(defaultCall.body.code).toBe("REQUIRED_EVIDENCE_MISSING");
-    expect(defaultCall.body.details.requiredEvidence).toEqual(["app_initialized"]);
-    expect(defaultCall.body.details.awaitInferred).toBe(true);
-  });
-
-  test("--no-await bypasses default lifecycle waiting", async () => {
-    const noAwaitCall = await runRoomctl(configPath, [
-      "tool-call",
-      "--room",
-      roomId,
-      "--instance",
-      "integration-1",
-      "--name",
-      "get-time",
-      "--arguments",
-      "{}",
-      "--no-await",
-    ]);
-    expect(noAwaitCall.status).toBe(200);
-    const claims = noAwaitCall.body.claims as { unknown?: string[] } | undefined;
-    expect(claims?.unknown?.some((claim) => claim.includes("unknown"))).toBeTruthy();
+    expect(call.status).toBe(200);
   });
 });
 

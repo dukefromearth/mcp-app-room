@@ -98,6 +98,16 @@ npm run fixture:integration-server
 
 Fixture source lives at `e2e/fixtures/integration-server`.
 
+Run the canonical real-MCP integration suite:
+
+```bash
+npm run test:integration:real-mcp
+```
+
+Runbook:
+
+- `docs/real-mcp-integration-testing.md`
+
 ## MCP Conformance (Tier 1 Gate)
 
 Run deterministic MCP conformance checks and enforce the Tier 1 threshold:

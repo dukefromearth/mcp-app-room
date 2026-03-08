@@ -10,6 +10,7 @@ This directory contains repository governance and architecture documentation.
 - `roomd-support-matrix.md`: v1 support matrix (core profile + Apps profile).
 - `roomd-deprecation-policy.md`: compatibility and transport deprecation policy.
 - `roomd-release-readiness-checklist.md`: release gate checklist tied to conformance evidence.
+- `real-mcp-integration-testing.md`: canonical real MCP integration fixture and test workflow.
 
 ## Update Workflow
 
