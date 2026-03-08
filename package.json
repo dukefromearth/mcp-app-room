@@ -38,6 +38,7 @@
     "conformance:run": "npm run --workspace services/roomd conformance:run --",
     "conformance:check": "npm run --workspace services/roomd conformance:check --",
     "conformance:tier1": "npm run conformance:run && npm run conformance:check -- --threshold 1.0",
+    "upstream:strict-init:status": "node tools/upstream/check-ext-apps-strict-init.mjs",
     "docs:check": "node tools/docs/check-roomd-governance-docs.mjs",
     "dev-sidebar:check-contracts": "node tools/dev-sidebar/check-contract-drift.mjs",
     "arch:lint": "depcruise --config .dependency-cruiser.cjs --ignore-known .dependency-cruiser-known-violations.json apps services",

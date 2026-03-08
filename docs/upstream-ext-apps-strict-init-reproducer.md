@@ -12,6 +12,18 @@ This note tracks the strict-mode initialization idempotency dependency gap in
 - Upstream state: issue `OPEN`, PR `OPEN` (not merged)
 - Latest npm release observed: `@modelcontextprotocol/ext-apps@1.2.0` (published 2026-03-06)
 
+Automated status check command:
+
+```bash
+npm run upstream:strict-init:status
+```
+
+JSON output:
+
+```bash
+npm run upstream:strict-init:status -- --json
+```
+
 ## Local Reproducer Signals
 
 Canonical positive lifecycle suite:
