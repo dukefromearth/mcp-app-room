@@ -29,10 +29,8 @@ Configuration lives in:
 
 Current baseline debt:
 
-- 4 `source-line-cap` violations are currently suppressed in non-strict mode.
+- 2 `source-line-cap` violations are currently suppressed in non-strict mode.
 - Current suppressed files:
-  - `apps/host-web/serve.ts`
-  - `apps/host-web/src/implementation.ts`
   - `services/roomd/src/store.ts`
   - `tools/roomctl/internal/roomctl/cli/root.go`
 

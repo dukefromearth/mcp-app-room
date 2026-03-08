@@ -5,6 +5,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import type { CallToolResult, Resource, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { getTheme, onThemeChange } from "./theme";
 import { HOST_STYLE_VARIABLES } from "./host-styles";
+import { loadUiResource, type UiResourceData } from "./ui-resource-loader";
 
 
 const DEFAULT_SANDBOX_PROXY_BASE_URL = "http://localhost:8081/sandbox.html";
@@ -69,37 +70,27 @@ async function connectWithFallback(serverUrl: URL): Promise<Client> {
 }
 
 
-interface UiResourceData {
-  html: string;
-  csp?: McpUiResourceCsp;
-  permissions?: McpUiResourcePermissions;
-}
-
 export type HostUiResourceCsp = McpUiResourceCsp;
 export type HostUiResourcePermissions = McpUiResourcePermissions;
 export type HostAppBridge = AppBridge;
-
-interface HostBridgeCapabilities {
-  hasTools: boolean;
-  hasResources: boolean;
-}
-
-interface ResourceMetaContainer {
-  _meta?: { ui?: unknown };
-  meta?: { ui?: unknown };
-}
+type HostUiResourceData = UiResourceData<McpUiResourceCsp, McpUiResourcePermissions>;
 
 type UiResourceMeta = {
   csp?: McpUiResourceCsp;
   permissions?: McpUiResourcePermissions;
 };
 
+interface HostBridgeCapabilities {
+  hasTools: boolean;
+  hasResources: boolean;
+}
+
 export interface ToolCallInfo {
   serverInfo: ServerInfo;
   tool: Tool;
   input: Record<string, unknown>;
   resultPromise: Promise<CallToolResult>;
-  appResourcePromise?: Promise<UiResourceData>;
+  appResourcePromise?: Promise<HostUiResourceData>;
 }
 
 
@@ -132,60 +123,10 @@ export function callTool(
 }
 
 
-async function getUiResource(serverInfo: ServerInfo, uri: string): Promise<UiResourceData> {
-  log.info("Reading UI resource:", uri);
-  const resource = await serverInfo.client.readResource({ uri });
-
-  if (!resource) {
-    throw new Error(`Resource not found: ${uri}`);
-  }
-
-  if (resource.contents.length !== 1) {
-    throw new Error(`Unexpected contents count: ${resource.contents.length}`);
-  }
-
-  const content = resource.contents[0];
-
-  // Per the MCP App specification, "text/html;profile=mcp-app" signals this
-  // resource is indeed for an MCP App UI.
-  if (content.mimeType !== RESOURCE_MIME_TYPE) {
-    throw new Error(`Unsupported MIME type: ${content.mimeType}`);
-  }
-
-  const html = "blob" in content ? atob(content.blob) : content.text;
-
-  // Per spec, content-level metadata from resources/read takes precedence over
-  // listing-level metadata from resources/list.
-  const contentMeta = parseUiResourceMeta(
-    readUiResourceMetaCandidate(content as ResourceMetaContainer),
-    "content-level"
-  );
-  const listingResource = serverInfo.resources.get(uri);
-  const listingMeta = parseUiResourceMeta(
-    readUiResourceMetaCandidate(listingResource as ResourceMetaContainer | undefined),
-    "listing-level"
-  );
-  const uiMeta = contentMeta ?? listingMeta;
-
-  return { html, csp: uiMeta?.csp, permissions: uiMeta?.permissions };
-}
-
-/**
- * Read `ui` metadata from MCP resource metadata containers.
- *
- * Supports both `_meta` (spec-compliant) and `meta` (legacy Python SDK quirk).
- */
-function readUiResourceMetaCandidate(resource: ResourceMetaContainer | undefined): unknown {
-  return resource?._meta?.ui ?? resource?.meta?.ui;
-}
-
-/**
- * Parse UI resource metadata using the ext-apps schema.
- *
- * Invalid metadata is ignored instead of failing resource loading so hosts
- * stay compatible with mixed-quality server implementations.
- */
-function parseUiResourceMeta(rawMeta: unknown, level: "content-level" | "listing-level"): UiResourceMeta | undefined {
+function parseUiResourceMeta(
+  rawMeta: unknown,
+  level: "content-level" | "listing-level",
+): UiResourceMeta | undefined {
   if (rawMeta === undefined) {
     return undefined;
   }
@@ -197,6 +138,17 @@ function parseUiResourceMeta(rawMeta: unknown, level: "content-level" | "listing
   }
 
   return parsed.data;
+}
+
+async function getUiResource(serverInfo: ServerInfo, uri: string): Promise<HostUiResourceData> {
+  return loadUiResource({
+    uri,
+    expectedMimeType: RESOURCE_MIME_TYPE,
+    readResource: async (resourceUri) => serverInfo.client.readResource({ uri: resourceUri }),
+    listingResource: serverInfo.resources.get(uri),
+    parseUiMeta: parseUiResourceMeta,
+    log,
+  });
 }
 
 

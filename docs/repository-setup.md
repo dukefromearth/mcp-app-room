@@ -44,9 +44,7 @@ Dependencies are hoisted to root `node_modules/` by default. It is normal for
 
 ## Current Baseline Debt
 
-- 4 `source-line-cap` violations are currently baseline-suppressed:
-  - `apps/host-web/serve.ts`
-  - `apps/host-web/src/implementation.ts`
+- 2 `source-line-cap` violations are currently baseline-suppressed:
   - `services/roomd/src/store.ts`
   - `tools/roomctl/internal/roomctl/cli/root.go`
 - To list all current debt: `npm run repo:guard:strict`.
