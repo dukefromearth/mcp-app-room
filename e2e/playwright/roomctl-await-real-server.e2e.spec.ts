@@ -1,10 +1,15 @@
 import { expect, test } from "@playwright/test";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { once } from "node:events";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import {
+  getFreePort,
+  pipeLogs,
+  runCommand,
+  terminateProcess,
+  waitForHttp,
+} from "./support/process-utils";
 
 type Envelope = {
   status: number;
@@ -218,109 +223,4 @@ async function runRoomctl(configPath: string, args: string[]): Promise<Envelope>
     throw new Error(`roomctl failed: ${command.stderr || command.stdout}`);
   }
   return JSON.parse(command.stdout) as Envelope;
-}
-
-async function runCommand(
-  command: string,
-  args: string[],
-  cwd: string,
-  env: NodeJS.ProcessEnv = {},
-): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-  return await new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      cwd,
-      env: {
-        ...process.env,
-        ...env,
-      },
-      stdio: "pipe",
-    });
-
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk) => {
-      stdout += String(chunk);
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += String(chunk);
-    });
-    child.on("error", reject);
-    child.on("exit", (code) => {
-      resolve({
-        exitCode: code ?? 1,
-        stdout: stdout.trim(),
-        stderr: stderr.trim(),
-      });
-    });
-  });
-}
-
-function pipeLogs(prefix: string, child: ChildProcessWithoutNullStreams): void {
-  child.stdout.on("data", (chunk) => {
-    process.stdout.write(`${prefix} ${String(chunk)}`);
-  });
-  child.stderr.on("data", (chunk) => {
-    process.stderr.write(`${prefix} ${String(chunk)}`);
-  });
-}
-
-async function terminateProcess(child: ChildProcessWithoutNullStreams | undefined): Promise<void> {
-  if (!child || child.killed) {
-    return;
-  }
-
-  child.kill("SIGTERM");
-  const exitedOnTerm = await Promise.race([
-    once(child, "exit").then(() => true).catch(() => false),
-    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 5_000)),
-  ]);
-  if (exitedOnTerm) {
-    return;
-  }
-
-  child.kill("SIGKILL");
-  await once(child, "exit").catch(() => undefined);
-}
-
-async function waitForHttp(
-  url: string,
-  isReady: (status: number) => boolean,
-  timeoutMs: number,
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      const response = await fetch(url);
-      if (isReady(response.status)) {
-        return;
-      }
-    } catch {
-      // retry until timeout
-    }
-    await new Promise((resolve) => setTimeout(resolve, 200));
-  }
-  throw new Error(`Timed out waiting for ${url}`);
-}
-
-async function getFreePort(): Promise<number> {
-  return await new Promise((resolve, reject) => {
-    const server = createServer();
-    server.listen(0, "127.0.0.1");
-    server.on("listening", () => {
-      const address = server.address();
-      if (!address || typeof address === "string") {
-        reject(new Error("Unable to resolve free port"));
-        return;
-      }
-      const { port } = address;
-      server.close((error) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        resolve(port);
-      });
-    });
-    server.on("error", reject);
-  });
 }
