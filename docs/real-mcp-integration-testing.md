@@ -32,7 +32,7 @@ Included specs:
   - Host is intentionally not started, so `app_initialized` is expected to be missing.
 - `e2e/playwright/roomctl-real-server-host-lifecycle.e2e.spec.ts`
   - Positive lifecycle path with real MCP server + roomd + host.
-  - Asserts `bridge_connected` then `app_initialized`, and confirms default `tool-call` behavior.
+  - Asserts `bridge_connected` then `app_initialized`, confirms default `tool-call` behavior, and rejects duplicate host `app_initialized` evidence for a mounted instance.
 
 Both specs set `MCP_APP_ROOM_CONFIG` for roomctl calls (without passing explicit `--config`) to validate deterministic config resolution precedence in real workflows.
 
