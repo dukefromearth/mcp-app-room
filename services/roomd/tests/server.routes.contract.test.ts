@@ -1,6 +1,6 @@
 import express from "express";
 import request from "supertest";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   CompleteRequestParamsSchema,
   GetPromptRequestParamsSchema,
@@ -141,6 +141,35 @@ describe("server route contracts", () => {
     expect(compatibilityEvent).toBeDefined();
     expect(canonical.body.state.lifecycle).toBeUndefined();
     expect(compatibility.body.state.lifecycle).toBeUndefined();
+  });
+
+  it("emits compatibility route telemetry marker for /evidence alias usage", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const { app, store } = createRouteTestApp();
+      await createMountedInstance(app, store);
+
+      const compatibilityLog = logSpy.mock.calls
+        .map(([line]) => {
+          if (typeof line !== "string") {
+            return null;
+          }
+          try {
+            return JSON.parse(line) as Record<string, unknown>;
+          } catch {
+            return null;
+          }
+        })
+        .find((entry) => entry?.msg === "lifecycle.compatibility_route_hit");
+
+      expect(compatibilityLog).toMatchObject({
+        msg: "lifecycle.compatibility_route_hit",
+        roomId: "demo",
+        instanceId: "inst-1",
+      });
+    } finally {
+      logSpy.mockRestore();
+    }
   });
 
   it("returns INVALID_PAYLOAD contract for malformed lifecycle payload", async () => {
