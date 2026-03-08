@@ -11,7 +11,7 @@
     "dev": "cross-env NODE_ENV=development concurrently \"npm run watch\" \"npm run serve\""
   },
   "dependencies": {
-    "@modelcontextprotocol/ext-apps": "1.1.2",
+    "@modelcontextprotocol/ext-apps": "1.2.0",
     "@modelcontextprotocol/sdk": "^1.24.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
@@ -27,10 +27,10 @@
     "cors": "^2.8.5",
     "express": "^5.1.0",
     "prettier": "^3.6.2",
+    "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vite": "^6.0.0",
     "vite-plugin-singlefile": "^2.3.0",
-    "vitest": "^3.2.4",
-    "tsx": "^4.21.0"
+    "vitest": "^3.2.4"
   }
 }
