@@ -19,6 +19,18 @@ for `roomd` runtime/API contracts.
   "errorContract": {
     "shape": ["ok", "error", "code", "details?", "hint?"],
     "stability": "additive-only within v1"
+  },
+  "lifecycleRouteCompatibility": {
+    "status": "deprecated",
+    "deprecationNoticeDate": "2026-03-08",
+    "canonicalRoute": "/rooms/:roomId/instances/:instanceId/lifecycle",
+    "compatibilityRoute": "/rooms/:roomId/instances/:instanceId/evidence",
+    "sunsetNotBeforeDate": "2026-12-31",
+    "trackingSignal": "lifecycle.compatibility_route_hit",
+    "telemetryGate": {
+      "windowDays": 30,
+      "maxCompatibilityRequestsPerDay": 0
+    }
   }
 }
 <!-- roomd-deprecation-policy:json:end -->
@@ -46,6 +58,25 @@ Before removal of `legacy-sse`, all of the following must be true:
 1. Streamable HTTP path is production-ready for all supported roomd integrations.
 2. Migration guidance is published in repository docs and release notes.
 3. At least one release cycle includes explicit deprecation warnings.
+
+## Lifecycle Route Deprecation Policy
+
+- Canonical ingress route:
+  `POST /rooms/:roomId/instances/:instanceId/lifecycle`
+- Compatibility alias (deprecated):
+  `POST /rooms/:roomId/instances/:instanceId/evidence`
+- Lifecycle compatibility alias is deprecated as of `2026-03-08`.
+- Compatibility alias removal will not occur before `2026-12-31` and remains
+  tracked by issue `#43`.
+
+### Lifecycle Sunset Criteria
+
+Before removing `/evidence`, all criteria below must be true:
+
+1. Compatibility telemetry signal `lifecycle.compatibility_route_hit` is at most
+   `0` requests/day for `30` consecutive days.
+2. First-party callers use `/lifecycle` as the default route.
+3. Contract and integration suites pass with compatibility route removed.
 
 ## Deprecation Process
 

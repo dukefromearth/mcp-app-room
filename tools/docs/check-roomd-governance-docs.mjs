@@ -13,27 +13,36 @@ const releaseChecklistPath = path.join(
   repoRoot,
   "docs/roomd-release-readiness-checklist.md",
 );
+const lifecyclePlaybookPath = path.join(
+  repoRoot,
+  "docs/lifecycle-migration-playbook.md",
+);
 
 async function main() {
   const supportMatrix = await readText(supportMatrixPath);
   const deprecationPolicy = await readText(deprecationPolicyPath);
   const releaseChecklist = await readText(releaseChecklistPath);
+  const lifecyclePlaybook = await readText(lifecyclePlaybookPath);
 
   assertContainsAll(supportMatrixPath, supportMatrix, [
     "## Core MCP Profile",
     "## MCP Apps Profile",
+    "## Lifecycle Ingress Contract",
     "| `streamable-http` |",
     "| `legacy-sse` |",
     "| `stdio` |",
     "| `roots` |",
     "| `sampling` |",
     "| `elicitation` |",
+    "POST /rooms/:roomId/instances/:instanceId/lifecycle",
   ]);
 
   assertContainsAll(deprecationPolicyPath, deprecationPolicy, [
     "## Compatibility Guarantees",
     "## Transport Deprecation Policy",
     "## Sunset Criteria",
+    "## Lifecycle Route Deprecation Policy",
+    "lifecycle.compatibility_route_hit",
     "2026-12-31",
     "legacy-sse",
   ]);
@@ -43,6 +52,17 @@ async function main() {
     "Tier 1 conformance artifact",
     "Support matrix updated",
     "Deprecation policy reviewed",
+    "Lifecycle migration playbook reviewed",
+    "Compatibility telemetry gate met",
+  ]);
+
+  assertContainsAll(lifecyclePlaybookPath, lifecyclePlaybook, [
+    "## Canonical Contract",
+    "## Route Migration: Before and After",
+    "## Deprecation Gate for Compatibility Route",
+    "POST /rooms/:roomId/instances/:instanceId/lifecycle",
+    "POST /rooms/:roomId/instances/:instanceId/evidence",
+    "lifecycle.compatibility_route_hit",
   ]);
 
   const supportSummary = parseJsonMarker(
@@ -59,6 +79,11 @@ async function main() {
     releaseChecklistPath,
     releaseChecklist,
     "roomd-release-checklist:json",
+  );
+  const lifecycleSummary = parseJsonMarker(
+    lifecyclePlaybookPath,
+    lifecyclePlaybook,
+    "lifecycle-migration-playbook:json",
   );
 
   assert(
@@ -81,6 +106,12 @@ async function main() {
       supportSummary.transports?.stdio === "supported",
     `${supportMatrixPath}: transports summary must include streamable-http, legacy-sse, and stdio support states`,
   );
+  assert(
+    supportSummary.lifecycleIngress?.canonicalRoute === "/rooms/:roomId/instances/:instanceId/lifecycle" &&
+      supportSummary.lifecycleIngress?.compatibilityRoute === "/rooms/:roomId/instances/:instanceId/evidence" &&
+      supportSummary.lifecycleIngress?.compatibilityStatus === "supported-deprecated",
+    `${supportMatrixPath}: lifecycleIngress must include canonical route, compatibility route, and deprecated status`,
+  );
 
   assert(
     deprecationSummary.compatibilityWindowMonths >= 6,
@@ -94,6 +125,28 @@ async function main() {
     deprecationSummary.legacySse?.sunsetNotBeforeDate === "2026-12-31",
     `${deprecationPolicyPath}: legacySse.sunsetNotBeforeDate must be 2026-12-31`,
   );
+  assert(
+    deprecationSummary.lifecycleRouteCompatibility?.status === "deprecated",
+    `${deprecationPolicyPath}: lifecycleRouteCompatibility.status must be deprecated`,
+  );
+  assert(
+    deprecationSummary.lifecycleRouteCompatibility?.canonicalRoute === "/rooms/:roomId/instances/:instanceId/lifecycle" &&
+      deprecationSummary.lifecycleRouteCompatibility?.compatibilityRoute === "/rooms/:roomId/instances/:instanceId/evidence",
+    `${deprecationPolicyPath}: lifecycleRouteCompatibility routes must match canonical and compatibility paths`,
+  );
+  assert(
+    deprecationSummary.lifecycleRouteCompatibility?.sunsetNotBeforeDate === "2026-12-31",
+    `${deprecationPolicyPath}: lifecycleRouteCompatibility.sunsetNotBeforeDate must be 2026-12-31`,
+  );
+  assert(
+    deprecationSummary.lifecycleRouteCompatibility?.trackingSignal === "lifecycle.compatibility_route_hit",
+    `${deprecationPolicyPath}: lifecycleRouteCompatibility.trackingSignal must be lifecycle.compatibility_route_hit`,
+  );
+  assert(
+    deprecationSummary.lifecycleRouteCompatibility?.telemetryGate?.windowDays === 30 &&
+      deprecationSummary.lifecycleRouteCompatibility?.telemetryGate?.maxCompatibilityRequestsPerDay === 0,
+    `${deprecationPolicyPath}: lifecycleRouteCompatibility.telemetryGate must be 30 days and <= 0 compatibility requests/day`,
+  );
 
   assert(
     checklistSummary.requiresConformanceThreshold === 1.0,
@@ -106,8 +159,38 @@ async function main() {
   assert(
     Array.isArray(checklistSummary.requiredPolicyDocs) &&
       checklistSummary.requiredPolicyDocs.includes("docs/roomd-support-matrix.md") &&
-      checklistSummary.requiredPolicyDocs.includes("docs/roomd-deprecation-policy.md"),
-    `${releaseChecklistPath}: requiredPolicyDocs must include support matrix and deprecation policy`,
+      checklistSummary.requiredPolicyDocs.includes("docs/roomd-deprecation-policy.md") &&
+      checklistSummary.requiredPolicyDocs.includes("docs/lifecycle-migration-playbook.md"),
+    `${releaseChecklistPath}: requiredPolicyDocs must include support matrix, deprecation policy, and lifecycle migration playbook`,
+  );
+
+  assert(
+    lifecycleSummary.programIssue === 37 &&
+      lifecycleSummary.documentationIssue === 42 &&
+      lifecycleSummary.compatibilityRemovalIssue === 43,
+    `${lifecyclePlaybookPath}: issue links must reference 37 (program), 42 (docs), and 43 (compatibility removal)`,
+  );
+  assert(
+    lifecycleSummary.canonicalLifecycleRoute === "/rooms/:roomId/instances/:instanceId/lifecycle" &&
+      lifecycleSummary.compatibilityLifecycleRoute === "/rooms/:roomId/instances/:instanceId/evidence",
+    `${lifecyclePlaybookPath}: canonical and compatibility lifecycle routes must match policy`,
+  );
+  assert(
+    lifecycleSummary.duplicateCreateContract?.firstCreateStatus === 201 &&
+      lifecycleSummary.duplicateCreateContract?.duplicateCreateStatus === 200 &&
+      lifecycleSummary.duplicateCreateContract?.duplicateCreatedFlag === false,
+    `${lifecyclePlaybookPath}: duplicateCreateContract must encode 201/200 with duplicate created:false`,
+  );
+  assert(
+    lifecycleSummary.compatibilityTelemetryGate?.trackingSignal === "lifecycle.compatibility_route_hit" &&
+      lifecycleSummary.compatibilityTelemetryGate?.windowDays === 30 &&
+      lifecycleSummary.compatibilityTelemetryGate?.maxCompatibilityRequestsPerDay === 0,
+    `${lifecyclePlaybookPath}: compatibility telemetry gate must match lifecycle compatibility policy`,
+  );
+  assert(
+    lifecycleSummary.compatibilityTelemetryGate?.trackingSignal ===
+      deprecationSummary.lifecycleRouteCompatibility?.trackingSignal,
+    `${lifecyclePlaybookPath}: telemetry signal must match deprecation policy`,
   );
 
   console.log("[docs-check] roomd governance docs are valid");
