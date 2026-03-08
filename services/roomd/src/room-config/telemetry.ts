@@ -1,3 +1,5 @@
+import { getRoomdLogger } from "../logging";
+
 export interface RoomConfigMetricLabels {
   action: "upsert" | "load" | "save";
   status: "ok" | "error";
@@ -26,17 +28,19 @@ export interface RoomConfigTelemetry {
   record(event: RoomConfigAuditEvent): void;
 }
 
+const logger = getRoomdLogger({ component: "room_config_telemetry" });
+
 export class ConsoleRoomConfigTelemetry implements RoomConfigTelemetry {
   increment(
     metric: "room_config_requests_total",
     labels: RoomConfigMetricLabels,
   ): void {
     // GOTCHA: Metrics currently log to stdout until a real collector is wired.
-    console.info(JSON.stringify({ metric, labels }));
+    logger.info("metric.increment", { metric, labels });
   }
 
   record(event: RoomConfigAuditEvent): void {
-    console.info(JSON.stringify({ event: "room_config_audit", ...event }));
+    logger.info("audit.record", { event: "room_config_audit", ...event });
   }
 }
 

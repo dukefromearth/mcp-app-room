@@ -53,6 +53,16 @@ function asStringArray(value, path, fallback) {
   throw new Error(`${path} must include at least one string`);
 }
 
+function splitCommaList(value) {
+  if (typeof value !== "string") {
+    return [];
+  }
+  return value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
+
 function toAbsolutePath(cwd, value) {
   if (typeof value !== "string" || value.trim().length === 0) {
     return undefined;
@@ -141,4 +151,17 @@ export function loadGlobalConfig(configPath) {
       profile: securityProfile,
     },
   };
+}
+
+export function resolveBootstrapRooms(config, existingValue = process.env.ROOMD_BOOTSTRAP_ROOMS) {
+  const roomIds = new Set(splitCommaList(existingValue));
+
+  if (config?.host?.mode === "room" && typeof config.host.roomId === "string") {
+    const roomId = config.host.roomId.trim();
+    if (roomId.length > 0) {
+      roomIds.add(roomId);
+    }
+  }
+
+  return [...roomIds];
 }

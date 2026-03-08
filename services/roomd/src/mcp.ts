@@ -36,9 +36,11 @@ import { registerClientCapabilityHandlers } from "./mcp-client-capabilities";
 import type { UiResourceMeta } from "./mcp-ui-resource";
 import { buildNegotiatedSession, readProtocolVersion } from "./mcp-session-metadata";
 import { RealMcpSession } from "./mcp-session";
+import { getRoomdLogger, serializeError } from "./logging";
 
 const IMPLEMENTATION = { name: "roomd", version: "0.1.0" };
 const UI_EXTENSION_KEY = "io.modelcontextprotocol/ui";
+const logger = getRoomdLogger({ component: "mcp_session_factory" });
 
 interface ConnectedClient {
   client: Client;
@@ -80,6 +82,11 @@ class HttpTransportAdapter implements TransportAdapter {
     serverKey: string,
     server: ServerDescriptor,
   ): Promise<ConnectedClient> {
+    const httpLogger = logger.child({
+      adapter: "http",
+      roomId,
+      server: serverKey,
+    });
     if (server.kind !== "http") {
       throw new Error("HTTP adapter only supports HTTP descriptors");
     }
@@ -112,13 +119,17 @@ class HttpTransportAdapter implements TransportAdapter {
         requestInit ? { requestInit } : undefined,
       );
       await streamableClient.connect(transport);
-      return {
+      const connected: ConnectedClient = {
         client: streamableClient,
         transport: "streamable-http",
         protocolVersion: readProtocolVersion(transport),
         clientCapabilities: advertisedCapabilities,
       };
+      return connected;
     } catch (error) {
+      httpLogger.debug("connect.streamable_http_failed", {
+        error: serializeError(error),
+      });
       streamableErrors.push(error);
     }
 
@@ -134,18 +145,23 @@ class HttpTransportAdapter implements TransportAdapter {
         requestInit ? { requestInit } : undefined,
       );
       await sseClient.connect(transport);
-      return {
+      const connected: ConnectedClient = {
         client: sseClient,
         transport: "legacy-sse",
         protocolVersion: readProtocolVersion(transport),
         clientCapabilities: advertisedCapabilities,
       };
+      return connected;
     } catch (error) {
+      httpLogger.debug("connect.sse_failed", {
+        error: serializeError(error),
+      });
       streamableErrors.push(error);
     }
 
     if (streamableErrors.some((error) => isUnauthorizedTransportError(error))) {
       if (strategy.type === "none") {
+        httpLogger.warn("connect.auth_required", { server: server.url });
         throw new RoomdAuthError(
           401,
           "AUTH_REQUIRED",
@@ -157,6 +173,10 @@ class HttpTransportAdapter implements TransportAdapter {
         );
       }
 
+      httpLogger.warn("connect.auth_failed", {
+        server: server.url,
+        strategy: strategy.type,
+      });
       throw new RoomdAuthError(
         401,
         "AUTH_FAILED",
@@ -177,7 +197,6 @@ class HttpTransportAdapter implements TransportAdapter {
       `Unable to establish HTTP/SSE MCP transport for ${server.url}: ${causes}`,
     );
   }
-
 }
 
 class StdioTransportAdapter implements TransportAdapter {
@@ -197,6 +216,11 @@ class StdioTransportAdapter implements TransportAdapter {
     serverKey: string,
     server: ServerDescriptor,
   ): Promise<ConnectedClient> {
+    const stdioLogger = logger.child({
+      adapter: "stdio",
+      roomId,
+      server: serverKey,
+    });
     if (server.kind !== "stdio") {
       throw new Error("Stdio adapter only supports stdio descriptors");
     }
@@ -225,12 +249,18 @@ class StdioTransportAdapter implements TransportAdapter {
 
     await client.connect(transport);
 
-    return {
+    const connected: ConnectedClient = {
       client,
       transport: "stdio",
       protocolVersion: readProtocolVersion(transport),
       clientCapabilities: advertisedCapabilities,
     };
+    stdioLogger.info("connect.exit", {
+      transport: connected.transport,
+      protocolVersion: connected.protocolVersion,
+      command: server.command,
+    });
+    return connected;
   }
 
   private assertCommandAllowed(command: string): void {
@@ -274,6 +304,12 @@ export class RealMcpSessionFactory implements McpSessionFactory {
   async getSession(roomId: string, serverUrl: string): Promise<McpSession> {
     const normalizedServer = normalizeServerTarget(serverUrl);
     const key = `${roomId}::${normalizedServer}`;
+    const sessionLogger = logger.child({
+      roomId,
+      server: normalizedServer,
+      cacheKey: key,
+    });
+    sessionLogger.info("getSession.enter");
 
     if (!this.sessions.has(key)) {
       const sessionPromise = (async () => {
@@ -310,10 +346,14 @@ export class RealMcpSessionFactory implements McpSessionFactory {
       );
     }
 
-    return this.sessions.get(key)!;
+    const session = await this.sessions.get(key)!;
+    sessionLogger.info("getSession.exit");
+    return session;
   }
 
   async releaseSession(roomId: string, serverUrl: string): Promise<void> {
+    const releaseLogger = logger.child({ roomId, serverUrl });
+    releaseLogger.info("releaseSession.enter");
     let normalizedServer: string;
     try {
       normalizedServer = normalizeServerTarget(serverUrl);
@@ -331,6 +371,7 @@ export class RealMcpSessionFactory implements McpSessionFactory {
     try {
       const session = await pending;
       await session.close();
+      releaseLogger.info("releaseSession.exit", { key });
     } catch {
       // Ignore close/retrieval failures during release path.
     }

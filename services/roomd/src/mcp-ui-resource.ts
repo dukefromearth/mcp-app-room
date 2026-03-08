@@ -1,3 +1,5 @@
+import { getRoomdLogger } from "./logging";
+
 export interface ResourceMetaContainer {
   _meta?: { ui?: unknown };
   meta?: { ui?: unknown };
@@ -13,6 +15,8 @@ interface UiMetaSafeParseResult {
   data?: UiResourceMeta;
   errorMessage?: string;
 }
+
+const logger = getRoomdLogger({ component: "mcp_ui_resource" });
 
 /**
  * Read `ui` metadata from MCP resource metadata containers.
@@ -42,10 +46,10 @@ export function parseUiResourceMeta(
 
   const parsed = safeParse(rawMeta);
   if (!parsed.success) {
-    console.warn(
-      `[roomd] Ignoring invalid ${level} UI metadata:`,
-      parsed.errorMessage ?? "invalid",
-    );
+    logger.warn("parseUiResourceMeta.invalid", {
+      level,
+      errorMessage: parsed.errorMessage ?? "invalid",
+    });
     return undefined;
   }
 

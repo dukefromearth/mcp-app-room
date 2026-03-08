@@ -6,6 +6,7 @@ import type { RoomConfigRepository } from "./repository";
 import { assertValidRoomConfigSpec, orderRoomConfigInstances } from "./spec";
 import { NoopRoomConfigTelemetry } from "./telemetry";
 import type { RoomConfigTelemetry } from "./telemetry";
+import { getRoomdLogger, serializeError } from "../logging";
 import type {
   RoomConfigLoadPlan,
   RoomConfigPlanOperation,
@@ -27,6 +28,7 @@ interface ResolvedLoadPlan {
 
 export class RoomConfigService {
   private readonly telemetry: RoomConfigTelemetry;
+  private readonly logger = getRoomdLogger({ component: "room_config_service" });
 
   constructor(
     private readonly repository: RoomConfigRepository,
@@ -37,11 +39,13 @@ export class RoomConfigService {
   }
 
   async list(namespace: string): Promise<RoomConfigRecord[]> {
-    return this.repository.list(namespace);
+    const configs = await this.repository.list(namespace);
+    return configs;
   }
 
   async get(namespace: string, configId: string): Promise<RoomConfigRecord | null> {
-    return this.repository.get(namespace, configId);
+    const config = await this.repository.get(namespace, configId);
+    return config;
   }
 
   async upsert(input: RoomConfigUpsertInput): Promise<RoomConfigRecord> {
@@ -58,6 +62,11 @@ export class RoomConfigService {
     description?: string;
     tags?: string[];
   }): Promise<RoomConfigRecord> {
+    this.logger.info("saveFromRoomState.enter", {
+      namespace: input.namespace,
+      roomId: input.roomId,
+      configId: input.configId,
+    });
     const state = this.store.getState(input.roomId);
     const upsertInput = buildRoomConfigUpsertFromRoomState(
       {
@@ -71,10 +80,23 @@ export class RoomConfigService {
       },
       state,
     );
-    return this.persistUpsert("save", upsertInput, input.roomId);
+    const record = await this.persistUpsert("save", upsertInput, input.roomId);
+    this.logger.info("saveFromRoomState.exit", {
+      namespace: input.namespace,
+      roomId: input.roomId,
+      configId: input.configId,
+      revision: record.revision,
+    });
+    return record;
   }
 
   async planLoad(input: RoomConfigPlanInput): Promise<ResolvedLoadPlan> {
+    this.logger.info("planLoad.enter", {
+      namespace: input.namespace,
+      configId: input.configId,
+      roomId: input.roomId,
+      mode: input.mode,
+    });
     const config = await this.repository.get(input.namespace, input.configId);
     if (!config) {
       throw new HttpError(
@@ -126,7 +148,7 @@ export class RoomConfigService {
       ? config.spec.selectedInstanceId
       : instancesInApplyOrder[instancesInApplyOrder.length - 1]?.instanceId ?? null;
 
-    return {
+    const resolvedPlan = {
       config,
       plan: {
         operations,
@@ -138,9 +160,23 @@ export class RoomConfigService {
         },
       },
     };
+    this.logger.info("planLoad.exit", {
+      namespace: input.namespace,
+      configId: input.configId,
+      roomId: input.roomId,
+      operations: resolvedPlan.plan.operations.length,
+    });
+    return resolvedPlan;
   }
 
   async loadIntoRoom(input: RoomConfigLoadInput): Promise<RoomConfigLoadResult> {
+    this.logger.info("loadIntoRoom.enter", {
+      namespace: input.namespace,
+      configId: input.configId,
+      roomId: input.roomId,
+      mode: input.mode,
+      dryRun: input.dryRun,
+    });
     try {
       const resolved = await this.planLoad({
         namespace: input.namespace,
@@ -254,6 +290,12 @@ export class RoomConfigService {
         state: finalState,
       };
     } catch (error) {
+      this.logger.debug("loadIntoRoom.error", {
+        namespace: input.namespace,
+        configId: input.configId,
+        roomId: input.roomId,
+        error: serializeError(error),
+      });
       this.recordFailure("load", {
         namespace: input.namespace,
         configId: input.configId,
@@ -404,5 +446,4 @@ export class RoomConfigService {
     }
     return {};
   }
-
 }
