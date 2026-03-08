@@ -40,6 +40,14 @@ mcp-app-room (`@mcp-app-room`) extends (`@modelcontextprotocol/ext-apps`), which
 - Do active work on a named branch (not detached).
 - Run git fetch origin + git status -sb before starting a ticket.
 - After merges, explicitly sync both the main worktree and any detached audit worktrees.
+- github issues and subissues
+  - gh issue create has no --parent option in the CLI manual.
+  - GitHub supports native sub-issues via REST:
+    - POST /repos/{owner}/{repo}/issues/{issue_number}/sub_issues (add)
+    - GET /repos/{owner}/{repo}/issues/{issue_number}/sub_issues (list)
+    - PATCH /repos/{owner}/{repo}/issues/{issue_number}/sub_issues/priority (reorder)
+    - DELETE /repos/{owner}/{repo}/issues/{issue_number}/sub_issue (remove)
+    - GET /repos/{owner}/{repo}/issues/{issue_number}/parent (check parent)
 
 ### Commands
 - `npm run arch` # streams architecture Mermaid graphs to stdout (all by default; `--deps|--types|--callgraph` for one).
