@@ -66,7 +66,7 @@ Interpretation:
 
 - Owner: `team-platform` (this repository), `modelcontextprotocol/ext-apps` maintainers (upstream)
 - Blocked since: 2026-03-08
-- Earliest next check: 2026-03-15
+- Check cadence: every pickup/automation run (no date gate)
 - Exit criteria:
   1. Upstream PR merges.
   2. Upstream package release contains fix.
