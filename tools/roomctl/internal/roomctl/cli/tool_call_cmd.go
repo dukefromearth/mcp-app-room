@@ -156,7 +156,7 @@ func inferDefaultAwaitEvidence(body map[string]any, instanceID string) []string 
 		return nil
 	}
 
-	return []string{"app_initialized"}
+	return []string{DefaultAwaitEvidenceEvent}
 }
 
 func isUIBackedInstance(state map[string]any, instanceID string) bool {

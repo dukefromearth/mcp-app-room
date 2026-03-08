@@ -82,7 +82,7 @@ func newAwaitEvidenceCmd(opts *rootOptions) *cobra.Command {
 
 	cmd.Flags().StringVar(&roomID, "room", "", "Room ID")
 	cmd.Flags().StringVar(&instanceID, "instance", "", "Optional instance ID filter")
-	cmd.Flags().StringVar(&eventName, "event", "", "Evidence event name (e.g. app_initialized)")
+	cmd.Flags().StringVar(&eventName, "event", "", fmt.Sprintf("Evidence event name (e.g. %s)", DefaultAwaitEvidenceEvent))
 	cmd.Flags().IntVar(&sinceRevision, "since-revision", 0, "Only match evidence with revision > this value")
 	cmd.Flags().DurationVar(&pollInterval, "poll-interval", 300*time.Millisecond, "Polling interval while waiting")
 	cmd.Flags().DurationVar(&maxWait, "max-wait", 15*time.Second, "Maximum time to wait for evidence")

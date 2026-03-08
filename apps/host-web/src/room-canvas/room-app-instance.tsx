@@ -11,6 +11,7 @@ import {
   wireBridgeHandlers,
 } from "./bridge-wiring";
 import type { RoomInvocation, RoomMount, UiResource } from "./contracts";
+import type { HostLifecycleEvidenceEvent } from "./lifecycle-contract.generated";
 import type { RoomdClient } from "./roomd-client";
 
 interface RoomAppInstanceProps {
@@ -38,7 +39,7 @@ export function RoomAppInstance({
     let disposed = false;
 
     const reportEvidence = async (
-      event: "bridge_connected" | "resource_delivered" | "app_initialized" | "app_error",
+      event: HostLifecycleEvidenceEvent,
       details?: Record<string, unknown>,
     ) => {
       try {

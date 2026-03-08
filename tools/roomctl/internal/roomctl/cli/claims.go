@@ -71,7 +71,7 @@ func deriveClaims(command string, body map[string]any) (map[string]any, bool) {
 			proven := []string{
 				"Tool RPC completed against upstream MCP endpoint.",
 			}
-			if _, hasInitialized := matches["app_initialized"]; hasInitialized {
+			if _, hasInitialized := matches[DefaultAwaitEvidenceEvent]; hasInitialized {
 				proven = append(proven, "Observed app_initialized lifecycle evidence for this call.")
 			} else {
 				proven = append(proven, "Observed lifecycle evidence for this call.")

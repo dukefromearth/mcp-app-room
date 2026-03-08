@@ -1,3 +1,5 @@
+import type { HostLifecycleEvidenceEvent } from "./lifecycle-contract.generated";
+
 export type UiResourceCsp = unknown;
 export type UiResourcePermissions = unknown;
 export type SessionTransportKind = "streamable-http" | "legacy-sse" | "stdio" | "unknown";
@@ -191,10 +193,7 @@ export type RoomEvidenceEvent =
   | "rpc_sent"
   | "rpc_succeeded"
   | "rpc_failed"
-  | "bridge_connected"
-  | "resource_delivered"
-  | "app_initialized"
-  | "app_error";
+  | HostLifecycleEvidenceEvent;
 
 export interface RoomEvidence {
   evidenceId: string;
