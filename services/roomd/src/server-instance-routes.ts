@@ -14,6 +14,10 @@ import type {
   ResourceSubscriptionParams,
 } from "./types";
 import { getRoomdLogger } from "./logging";
+import {
+  LIFECYCLE_CANONICAL_INGRESS_ROUTE,
+  LIFECYCLE_COMPATIBILITY_INGRESS_ROUTE,
+} from "./lifecycle-contract.generated";
 
 interface ParsedSchema<TParsed> {
   parse(input: unknown): TParsed;
@@ -61,23 +65,52 @@ export function registerInstanceRoutes(
     },
   );
 
+  const reportLifecycleEvidence = async (
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction,
+  ) => {
+    try {
+      const body = instanceEvidenceSchema.parse(req.body ?? {});
+      const roomId = Array.isArray(req.params.roomId)
+        ? req.params.roomId[0]
+        : req.params.roomId;
+      const instanceId = Array.isArray(req.params.instanceId)
+        ? req.params.instanceId[0]
+        : req.params.instanceId;
+      const state = store.reportInstanceEvidence(
+        roomId,
+        instanceId,
+        body.source,
+        body.event,
+        body.details,
+        body.invocationId,
+      );
+      res.json({ ok: true, revision: state.revision, state });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   app.post(
-    "/rooms/:roomId/instances/:instanceId/evidence",
+    LIFECYCLE_CANONICAL_INGRESS_ROUTE,
+    reportLifecycleEvidence,
+  );
+
+  app.post(
+    LIFECYCLE_COMPATIBILITY_INGRESS_ROUTE,
     async (req, res, next) => {
-      try {
-        const body = instanceEvidenceSchema.parse(req.body ?? {});
-        const state = store.reportInstanceEvidence(
-          req.params.roomId,
-          req.params.instanceId,
-          body.source,
-          body.event,
-          body.details,
-          body.invocationId,
-        );
-        res.json({ ok: true, revision: state.revision, state });
-      } catch (error) {
-        next(error);
-      }
+      const roomId = Array.isArray(req.params.roomId)
+        ? req.params.roomId[0]
+        : req.params.roomId;
+      const instanceId = Array.isArray(req.params.instanceId)
+        ? req.params.instanceId[0]
+        : req.params.instanceId;
+      logger.info("lifecycle.compatibility_route_hit", {
+        roomId,
+        instanceId,
+      });
+      await reportLifecycleEvidence(req, res, next);
     },
   );
 

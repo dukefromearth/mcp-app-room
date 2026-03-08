@@ -1,5 +1,8 @@
 import type { RoomState, UiResource } from "./contracts";
-import type { HostLifecycleEvidenceEvent } from "./lifecycle-contract.generated";
+import {
+  LIFECYCLE_CANONICAL_NOUN,
+  type HostLifecycleEvidenceEvent,
+} from "./lifecycle-contract.generated";
 
 interface RoomdError {
   error?: string;
@@ -59,7 +62,7 @@ export function createRoomdClient(roomdUrl: string): RoomdClient {
   return {
     async ensureRoom(roomId: string): Promise<void> {
       const response = await postJson("/rooms", { roomId });
-      if (response.status !== 201 && response.status !== 409) {
+      if (response.status !== 201 && response.status !== 200) {
         await throwRoomdResponseError(response);
       }
     },
@@ -133,7 +136,10 @@ export function createRoomdClient(roomdUrl: string): RoomdClient {
       if (invocationId) {
         payload.invocationId = invocationId;
       }
-      const response = await postJson(instancePath(roomId, instanceId, "/evidence"), payload);
+      const response = await postJson(
+        instancePath(roomId, instanceId, `/${LIFECYCLE_CANONICAL_NOUN}`),
+        payload,
+      );
       if (!response.ok) {
         await throwRoomdResponseError(response);
       }
