@@ -77,7 +77,7 @@ npm run roomd:cli -- room-config-save --room demo --config banking-room
 ```
 
 Global flags:
-- `--config` (default: `config/global.yaml` via upward lookup)
+- `--config` (highest priority, then `MCP_APP_ROOM_CONFIG`, then `config/global.yaml` via upward lookup)
 - `--base-url` (overrides `roomd.baseUrl` from config)
 - `--timeout` (default `10s`)
 - `--output pretty|json`

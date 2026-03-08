@@ -88,7 +88,7 @@ func newRootCmdWithOptions(opts *rootOptions) *cobra.Command {
 	cmd.SetErr(opts.stderr)
 	cmd.SetOut(opts.stdout)
 
-	cmd.PersistentFlags().StringVar(&opts.configPath, "config", opts.configPath, "Path to global YAML config (default: auto-discover config/global.yaml)")
+	cmd.PersistentFlags().StringVar(&opts.configPath, "config", opts.configPath, "Path to global YAML config (highest priority; default resolution: MCP_APP_ROOM_CONFIG then auto-discover config/global.yaml)")
 	cmd.PersistentFlags().StringVar(&opts.baseURL, "base-url", opts.baseURL, "roomd base URL (overrides config)")
 	cmd.PersistentFlags().DurationVar(&opts.timeout, "timeout", opts.timeout, "HTTP timeout (e.g. 5s, 30s)")
 	cmd.PersistentFlags().StringVarP(&opts.output, "output", "o", opts.output, "Output format: pretty|json")
@@ -110,7 +110,7 @@ func newRootCmdWithOptions(opts *rootOptions) *cobra.Command {
 			baseURL = "<from config>"
 		}
 		if strings.TrimSpace(configPath) == "" {
-			configPath = "<auto-discover: config/global.yaml>"
+			configPath = "<auto-resolve: --config > MCP_APP_ROOM_CONFIG > config/global.yaml>"
 		}
 
 		fmt.Fprintln(out, "WHERE YOU ARE")
@@ -138,7 +138,7 @@ func newRootCmdWithOptions(opts *rootOptions) *cobra.Command {
 		fmt.Fprintln(out, "    - an MCP server is any implementation of the MCP spec that roomd can talk to over HTTP or stdio (e.g. an MCP-App or a custom server you built).")
 		fmt.Fprintln(out, "    - an MCP server provides tools, resources, and prompts that can be mounted into rooms as instances.")
 		fmt.Fprintln(out, "  - container: grid slot x,y,w,h (e.g. {{x}},{{y}},{{w}},{{h}})")
-		fmt.Println(out, "    - this is your 'view' of the UI that the user sees. if you don't know the size of viewport you're mounting to, or what else is mounted, you probably want to fetch it with inspect first.")
+		fmt.Fprintln(out, "    - this is your 'view' of the UI that the user sees. if you don't know the size of viewport you're mounting to, or what else is mounted, you probably want to fetch it with inspect first.")
 		fmt.Fprintln(out, "  - inspect: discover tools + UI candidates before mount")
 		fmt.Fprintln(out, "    - this is how you discover what an MCP server offers before you mount it. You can inspect at any time to see current tools/resources/prompts and available UI resource candidates.")
 		fmt.Fprintln(out, "    - a lot is required to know up front before you can mount, what tools there are, should you mount with a tool, should you ask the user before mounting and give them the options?")

@@ -22,6 +22,9 @@ Run both real-MCP integration specs:
 npm run test:integration:real-mcp
 ```
 
+The script runs with `--workers=1` to avoid SQLite lock races between parallel
+roomd instances in shared test infrastructure.
+
 Included specs:
 
 - `e2e/playwright/roomctl-await-real-server.e2e.spec.ts`
@@ -30,6 +33,8 @@ Included specs:
 - `e2e/playwright/roomctl-real-server-host-lifecycle.e2e.spec.ts`
   - Positive lifecycle path with real MCP server + roomd + host.
   - Asserts `bridge_connected` then `app_initialized`, and confirms default `tool-call` behavior.
+
+Both specs set `MCP_APP_ROOM_CONFIG` for roomctl calls (without passing explicit `--config`) to validate deterministic config resolution precedence in real workflows.
 
 ## Why negative path can fail without host
 
@@ -45,6 +50,7 @@ If host is not running for a test, missing `app_initialized` is expected and sho
    - Check `http://127.0.0.1:<port>/mcp` responds (status may be `406` without MCP payload, which is still a liveness signal).
 3. Host lifecycle evidence missing in positive spec:
    - Confirm host process started from the same generated global config as roomd.
+   - Confirm sandbox URL override points to configured sandbox port (the host default assumes `hostPort+1`).
    - Confirm room mount exists and UI tile is visible before awaiting lifecycle evidence.
 4. Security profile mismatches:
    - Integration specs expect `security.profile: local-dev` in generated config.

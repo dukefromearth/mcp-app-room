@@ -45,6 +45,7 @@ visible UI success.
 
 Config resolution:
 
-- `roomctl` reads `roomd.baseUrl` from `config/global.yaml` by default.
-- Override config path with `--config /path/to/global.yaml`.
+- `--config /path/to/global.yaml` (highest priority).
+- `MCP_APP_ROOM_CONFIG=/path/to/global.yaml` when `--config` is not provided.
+- Auto-discover `config/global.yaml` upward from current working directory when neither override is set.
 - Override URL directly with `--base-url http://host:port` (highest priority).

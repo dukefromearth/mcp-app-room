@@ -12,7 +12,8 @@ Real MCP server fixture used by repository integration tests.
 
 - `main.mjs`: starts Streamable HTTP (`/mcp`) or stdio transport.
 - `server.mjs`: registers `get-time` tool and linked UI resource.
-- `dist/mcp-app.html`: bundled UI payload served as `text/html;profile=mcp-app`.
+- `mcp-app.html`: checked-in fallback UI payload served as `text/html;profile=mcp-app`.
+- `dist/mcp-app.html`: optional preferred build artifact when present.
 
 ## Run
 
@@ -29,4 +30,4 @@ This fixture is copied and adapted from:
 Adaptations are intentionally minimal:
 
 - JS runtime entrypoints (`.mjs`) so tests can launch with plain `node`.
-- Localized static UI bundle at `dist/mcp-app.html`.
+- Deterministic fixture UI payload with checked-in fallback (`mcp-app.html`).
