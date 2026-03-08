@@ -44,5 +44,15 @@ Dependencies are hoisted to root `node_modules/` by default. It is normal for
 
 ## Current Baseline Debt
 
-- 5 `source-line-cap` violations are currently baseline-suppressed.
+- 4 `source-line-cap` violations are currently baseline-suppressed:
+  - `apps/host-web/serve.ts`
+  - `apps/host-web/src/implementation.ts`
+  - `services/roomd/src/store.ts`
+  - `tools/roomctl/internal/roomctl/cli/root.go`
 - To list all current debt: `npm run repo:guard:strict`.
+
+## Line-Cap Harmonization Policy
+
+- Repository policy cap is `450` lines for `.ts`, `.tsx`, and `.go`.
+- Local domain size guards should use the same default cap (`450`).
+- Temporary per-file overrides are allowed only with a linked debt issue and removal intent.

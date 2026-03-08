@@ -2,7 +2,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-const MAX_SOURCE_LINES = 500;
+const DEFAULT_MAX_SOURCE_LINES = 450;
+const FILE_MAX_OVERRIDES: Record<string, number> = {
+  // TODO(#46): remove override after host seam extraction completes.
+  "serve.ts": 750,
+  // TODO(#46): remove override after host seam extraction completes.
+  "implementation.ts": 550
+};
 
 function collectSourceFiles(dir: string): string[] {
   const entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -25,15 +31,21 @@ function collectSourceFiles(dir: string): string[] {
 }
 
 describe("host-web domain size guard", () => {
-  it(`keeps non-test src TS files at or below ${MAX_SOURCE_LINES} lines`, () => {
-    const root = path.resolve(process.cwd(), "src");
-    const violations = collectSourceFiles(root)
+  it(`keeps non-test TS/TSX files at or below ${DEFAULT_MAX_SOURCE_LINES} lines unless issue-linked override exists`, () => {
+    const projectRoot = process.cwd();
+    const srcRoot = path.resolve(projectRoot, "src");
+    const servePath = path.resolve(projectRoot, "serve.ts");
+    const sourceFiles = [...collectSourceFiles(srcRoot), servePath];
+    const violations = sourceFiles
       .map((filePath) => {
         const lineCount = fs.readFileSync(filePath, "utf8").split("\n").length;
-        return { filePath, lineCount };
+        const relativePath = path.relative(projectRoot, filePath).replaceAll("\\", "/");
+        const fileName = path.basename(relativePath);
+        const maxLines = FILE_MAX_OVERRIDES[fileName] ?? DEFAULT_MAX_SOURCE_LINES;
+        return { relativePath, lineCount, maxLines };
       })
-      .filter(({ lineCount }) => lineCount > MAX_SOURCE_LINES)
-      .map(({ filePath, lineCount }) => `${path.relative(process.cwd(), filePath)} (${lineCount})`);
+      .filter(({ lineCount, maxLines }) => lineCount > maxLines)
+      .map(({ relativePath, lineCount, maxLines }) => `${relativePath} (${lineCount} > ${maxLines})`);
 
     expect(violations).toEqual([]);
   });

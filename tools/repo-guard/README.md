@@ -29,4 +29,15 @@ Configuration lives in:
 
 Current baseline debt:
 
-- 5 `source-line-cap` violations are currently suppressed in non-strict mode.
+- 4 `source-line-cap` violations are currently suppressed in non-strict mode.
+- Current suppressed files:
+  - `apps/host-web/serve.ts`
+  - `apps/host-web/src/implementation.ts`
+  - `services/roomd/src/store.ts`
+  - `tools/roomctl/internal/roomctl/cli/root.go`
+
+Temporary exception workflow for local size guards:
+
+1. Keep the default cap aligned to repo-guard policy (`450`).
+2. If a file needs temporary headroom, add a file-specific override with a linked debt issue.
+3. Remove the override in the same PR that lands the seam extraction.
