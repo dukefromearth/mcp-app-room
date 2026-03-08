@@ -14,7 +14,7 @@
     "conformance:check": "tsx src/conformance/check-threshold.ts"
   },
   "dependencies": {
-    "@modelcontextprotocol/ext-apps": "^1.0.0",
+    "@modelcontextprotocol/ext-apps": "1.1.2",
     "@modelcontextprotocol/sdk": "^1.24.0",
     "@types/better-sqlite3": "^7.6.13",
     "better-sqlite3": "^12.6.2",

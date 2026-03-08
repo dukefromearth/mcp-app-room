@@ -247,6 +247,17 @@ test.describe("roomctl lifecycle evidence with full real MCP fixture + host", ()
       roomId,
     ]);
     expect(state.status).toBe(200);
+    const evidence = (state.body.state?.evidence ?? []) as Array<Record<string, any>>;
+    const hostInstanceEvidence = evidence.filter(
+      (item) => item.source === "host" && item.instanceId === "integration-1",
+    );
+    const appInitializedEvents = hostInstanceEvidence.filter(
+      (item) => item.event === "app_initialized",
+    );
+    // GOTCHA: Strict-mode bridge races have historically duplicated accepted
+    // initialize progression. Keep this lock strict to prevent regressions.
+    expect(appInitializedEvents).toHaveLength(1);
+
     const instances = (state.body.state?.assurance?.instances ?? []) as Array<Record<string, any>>;
     const assurance = instances.find((instance) => instance.instanceId === "integration-1");
     expect(assurance?.level).toBe("ui_app_initialized");

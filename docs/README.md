@@ -12,6 +12,7 @@ This directory contains repository governance and architecture documentation.
 - `roomd-release-readiness-checklist.md`: release gate checklist tied to conformance evidence.
 - `real-mcp-integration-testing.md`: canonical real MCP integration fixture and test workflow.
 - `lifecycle-contract-source-of-truth.md`: canonical lifecycle contract and drift-check workflow.
+- `upstream-ext-apps-strict-init-reproducer.md`: upstream strict-init dependency tracking and blocker record.
 
 ## Update Workflow
 
