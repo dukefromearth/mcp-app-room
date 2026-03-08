@@ -15,6 +15,15 @@ mcp-app-room (`@mcp-app-room`) extends (`@modelcontextprotocol/ext-apps`), which
 - **Room-level tools** - Tools that operate at the room level, not tied to a specific instance, where we simplyfy MCP communcation via a roomctl CLI and roomd server.
 - **Cross-instance interactions** - Tools can reference other instances in the same room safely via the user, without the implementation details leaking between them.
 
+# Your Abilities
+
+- You have access to the terminal.
+- You can use websearch to search the web for the latest information, anything you want to know, or to find documentation.
+  - Use your best judgment, but in the CTO's opinion, research is the backbone of a good engineer. Sometimes going out and doing research, finding the perfect library, finding documentation (creating useful docs in the process) is the most important part of your job, and you should spend as much time as you need doing it.
+- You can skip sandbox permissions if needed.
+- You can use the installed "gh" CLI tool to interact with GitHub.
+- You can install any library you need, and you should do that. (less code is better, install the library that already does what you need, don't reinvent the wheel)
+
 ## IMPORTANT:
 - **MOST IMPORTANT:** Please do the right thing. It might hard, it might go against your goal, but please do the right thing. If you don't know what the right thing is, ask! I'm here to help, but I can't if you don't ask.
 - **IMPORTANT**: This library utilizes @modelcontextprotol libraries and is a feature built on top of it. We must stay in line with their system and tooling, we cannot deviate.
