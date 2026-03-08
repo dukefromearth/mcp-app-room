@@ -1,6 +1,6 @@
 import express from "express";
 import request from "supertest";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   CompleteRequestParamsSchema,
   GetPromptRequestParamsSchema,
@@ -82,11 +82,7 @@ async function createMountedInstance(app: express.Express, store: ReturnType<typ
   const canonical = await request(app)
     .post("/rooms/demo/instances/inst-1/lifecycle")
     .send(payload);
-  const compatibility = await request(app)
-    .post("/rooms/demo/instances/inst-1/evidence")
-    .send(payload);
-
-  return { canonical, compatibility };
+  return { canonical };
 }
 
 describe("server route contracts", () => {
@@ -117,59 +113,43 @@ describe("server route contracts", () => {
     ).toHaveLength(1);
   });
 
-  it("keeps canonical and compatibility lifecycle routes envelope-equivalent", async () => {
+  it("records host lifecycle evidence via canonical lifecycle route", async () => {
     const { app, store } = createRouteTestApp();
-    const { canonical, compatibility } = await createMountedInstance(app, store);
+    const { canonical } = await createMountedInstance(app, store);
 
     expect(canonical.status).toBe(200);
-    expect(compatibility.status).toBe(200);
-
     expect(canonical.body.ok).toBe(true);
-    expect(compatibility.body.ok).toBe(true);
     expect(canonical.body.state.roomId).toBe("demo");
-    expect(compatibility.body.state.roomId).toBe("demo");
 
     const canonicalEvent = canonical.body.state.evidence.find(
       (item: { event: string; instanceId?: string }) =>
         item.event === "app_initialized" && item.instanceId === "inst-1",
     );
-    const compatibilityEvent = compatibility.body.state.evidence.find(
-      (item: { event: string; instanceId?: string }) =>
-        item.event === "app_initialized" && item.instanceId === "inst-1",
-    );
     expect(canonicalEvent).toBeDefined();
-    expect(compatibilityEvent).toBeDefined();
     expect(canonical.body.state.lifecycle).toBeUndefined();
-    expect(compatibility.body.state.lifecycle).toBeUndefined();
   });
 
-  it("emits compatibility route telemetry marker for /evidence alias usage", async () => {
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-    try {
-      const { app, store } = createRouteTestApp();
-      await createMountedInstance(app, store);
-
-      const compatibilityLog = logSpy.mock.calls
-        .map(([line]) => {
-          if (typeof line !== "string") {
-            return null;
-          }
-          try {
-            return JSON.parse(line) as Record<string, unknown>;
-          } catch {
-            return null;
-          }
-        })
-        .find((entry) => entry?.msg === "lifecycle.compatibility_route_hit");
-
-      expect(compatibilityLog).toMatchObject({
-        msg: "lifecycle.compatibility_route_hit",
-        roomId: "demo",
+  it("returns not found for removed compatibility /evidence lifecycle route", async () => {
+    const { app, store } = createRouteTestApp();
+    store.createRoom("demo");
+    await store.applyCommand(
+      "demo",
+      commandEnvelope("cmd-mount", {
+        type: "mount",
         instanceId: "inst-1",
+        server: "http://localhost:3001/mcp",
+        container: { x: 0, y: 0, w: 6, h: 4 },
+      }),
+    );
+
+    const response = await request(app)
+      .post("/rooms/demo/instances/inst-1/evidence")
+      .send({
+        source: "host",
+        event: "bridge_connected",
       });
-    } finally {
-      logSpy.mockRestore();
-    }
+
+    expect(response.status).toBe(404);
   });
 
   it("returns INVALID_PAYLOAD contract for malformed lifecycle payload", async () => {
@@ -215,7 +195,7 @@ describe("server route contracts", () => {
     });
 
     const missingInstance = await request(app)
-      .post("/rooms/demo/instances/inst-404/evidence")
+      .post("/rooms/demo/instances/inst-404/lifecycle")
       .send({
         source: "host",
         event: "bridge_connected",

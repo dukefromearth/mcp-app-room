@@ -16,7 +16,6 @@ import type {
 import { getRoomdLogger } from "./logging";
 import {
   LIFECYCLE_CANONICAL_INGRESS_ROUTE,
-  LIFECYCLE_COMPATIBILITY_INGRESS_ROUTE,
 } from "./lifecycle-contract.generated";
 
 interface ParsedSchema<TParsed> {
@@ -95,23 +94,6 @@ export function registerInstanceRoutes(
   app.post(
     LIFECYCLE_CANONICAL_INGRESS_ROUTE,
     reportLifecycleEvidence,
-  );
-
-  app.post(
-    LIFECYCLE_COMPATIBILITY_INGRESS_ROUTE,
-    async (req, res, next) => {
-      const roomId = Array.isArray(req.params.roomId)
-        ? req.params.roomId[0]
-        : req.params.roomId;
-      const instanceId = Array.isArray(req.params.instanceId)
-        ? req.params.instanceId[0]
-        : req.params.instanceId;
-      logger.info("lifecycle.compatibility_route_hit", {
-        roomId,
-        instanceId,
-      });
-      await reportLifecycleEvidence(req, res, next);
-    },
   );
 
   app.get(

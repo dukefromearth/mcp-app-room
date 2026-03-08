@@ -11,7 +11,7 @@ the Apps extension profile.
   "lifecycleIngress": {
     "canonicalRoute": "/rooms/:roomId/instances/:instanceId/lifecycle",
     "compatibilityRoute": "/rooms/:roomId/instances/:instanceId/evidence",
-    "compatibilityStatus": "supported-deprecated"
+    "compatibilityStatus": "removed"
   },
   "transports": {
     "streamable-http": "supported",
@@ -52,7 +52,7 @@ the Apps extension profile.
 | Route | Status | Notes |
 | --- | --- | --- |
 | `POST /rooms/:roomId/instances/:instanceId/lifecycle` | Supported (Canonical) | Required route for first-party lifecycle ingestion. |
-| `POST /rooms/:roomId/instances/:instanceId/evidence` | Supported (Deprecated) | Compatibility alias only; removal tracked by issue `#43`. |
+| `POST /rooms/:roomId/instances/:instanceId/evidence` | Removed | Compatibility alias removed in issue `#43`; callers must use `/lifecycle`. |
 
 ### Capability Support
 

@@ -109,8 +109,8 @@ async function main() {
   assert(
     supportSummary.lifecycleIngress?.canonicalRoute === "/rooms/:roomId/instances/:instanceId/lifecycle" &&
       supportSummary.lifecycleIngress?.compatibilityRoute === "/rooms/:roomId/instances/:instanceId/evidence" &&
-      supportSummary.lifecycleIngress?.compatibilityStatus === "supported-deprecated",
-    `${supportMatrixPath}: lifecycleIngress must include canonical route, compatibility route, and deprecated status`,
+      supportSummary.lifecycleIngress?.compatibilityStatus === "removed",
+    `${supportMatrixPath}: lifecycleIngress must include canonical route, compatibility route, and removed status`,
   );
 
   assert(
@@ -126,8 +126,8 @@ async function main() {
     `${deprecationPolicyPath}: legacySse.sunsetNotBeforeDate must be 2026-12-31`,
   );
   assert(
-    deprecationSummary.lifecycleRouteCompatibility?.status === "deprecated",
-    `${deprecationPolicyPath}: lifecycleRouteCompatibility.status must be deprecated`,
+    deprecationSummary.lifecycleRouteCompatibility?.status === "removed",
+    `${deprecationPolicyPath}: lifecycleRouteCompatibility.status must be removed`,
   );
   assert(
     deprecationSummary.lifecycleRouteCompatibility?.canonicalRoute === "/rooms/:roomId/instances/:instanceId/lifecycle" &&
@@ -135,8 +135,12 @@ async function main() {
     `${deprecationPolicyPath}: lifecycleRouteCompatibility routes must match canonical and compatibility paths`,
   );
   assert(
-    deprecationSummary.lifecycleRouteCompatibility?.sunsetNotBeforeDate === "2026-12-31",
-    `${deprecationPolicyPath}: lifecycleRouteCompatibility.sunsetNotBeforeDate must be 2026-12-31`,
+    deprecationSummary.lifecycleRouteCompatibility?.sunsetNotBeforeDate === "2026-04-07",
+    `${deprecationPolicyPath}: lifecycleRouteCompatibility.sunsetNotBeforeDate must be 2026-04-07`,
+  );
+  assert(
+    deprecationSummary.lifecycleRouteCompatibility?.removalDate === "2026-03-08",
+    `${deprecationPolicyPath}: lifecycleRouteCompatibility.removalDate must be 2026-03-08`,
   );
   assert(
     deprecationSummary.lifecycleRouteCompatibility?.trackingSignal === "lifecycle.compatibility_route_hit",
@@ -174,6 +178,11 @@ async function main() {
     lifecycleSummary.canonicalLifecycleRoute === "/rooms/:roomId/instances/:instanceId/lifecycle" &&
       lifecycleSummary.compatibilityLifecycleRoute === "/rooms/:roomId/instances/:instanceId/evidence",
     `${lifecyclePlaybookPath}: canonical and compatibility lifecycle routes must match policy`,
+  );
+  assert(
+    lifecycleSummary.compatibilityLifecycleStatus === "removed" &&
+      lifecycleSummary.compatibilityRemovalDate === "2026-03-08",
+    `${lifecyclePlaybookPath}: compatibility lifecycle status must be removed with removalDate 2026-03-08`,
   );
   assert(
     lifecycleSummary.duplicateCreateContract?.firstCreateStatus === 201 &&

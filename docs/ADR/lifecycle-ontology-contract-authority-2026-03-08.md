@@ -48,9 +48,9 @@ If this ADR and generated artifacts diverge, `contracts/lifecycle-contract.json`
     "legacyCompatibilityNoun": "evidence",
     "canonicalIngressRoute": "/rooms/:roomId/instances/:instanceId/lifecycle",
     "compatibilityIngressRoute": "/rooms/:roomId/instances/:instanceId/evidence",
-    "compatibilityStatus": "deprecated",
+    "compatibilityStatus": "removed",
     "compatibilityRemovalIssue": 43,
-    "compatibilitySunsetNotBefore": "2026-12-31"
+    "compatibilitySunsetNotBefore": "2026-04-07"
   }
 }
 ```

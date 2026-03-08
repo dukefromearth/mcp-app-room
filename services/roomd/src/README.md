@@ -44,8 +44,9 @@ Room state now also carries protocol-level lifecycle evidence and assurance:
 
 Host lifecycle events are ingested via:
 - canonical: `POST /rooms/:roomId/instances/:instanceId/lifecycle`
-- compatibility alias (deprecated): `POST /rooms/:roomId/instances/:instanceId/evidence`
-  - both routes accept events: `bridge_connected`, `resource_delivered`, `app_initialized`, `app_error`
+- removed compatibility alias: `POST /rooms/:roomId/instances/:instanceId/evidence`
+  - requests to `/evidence` are no longer accepted after issue `#43`.
+  - canonical route accepts events: `bridge_connected`, `resource_delivered`, `app_initialized`, `app_error`
   - source: `host` or `app`
 
 Mount commands are app/server-level and persist:

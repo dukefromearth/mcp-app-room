@@ -26,10 +26,10 @@ export const LIFECYCLE_COMPATIBILITY_INGRESS_ROUTE =
   "/rooms/:roomId/instances/:instanceId/evidence" as const;
 
 export const LIFECYCLE_COMPATIBILITY_STATUS =
-  "deprecated" as const;
+  "removed" as const;
 
 export const LIFECYCLE_COMPATIBILITY_REMOVAL_ISSUE =
   43 as const;
 
 export const LIFECYCLE_COMPATIBILITY_SUNSET_NOT_BEFORE =
-  "2026-12-31" as const;
+  "2026-04-07" as const;
