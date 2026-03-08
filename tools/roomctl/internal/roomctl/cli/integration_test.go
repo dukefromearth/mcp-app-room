@@ -46,6 +46,31 @@ func TestCreateCommandIntegration(t *testing.T) {
 	}
 }
 
+func TestCreateCommandDuplicateRoomIntegration(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("content-type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true,"created":false,"state":{"roomId":"demo"}}`))
+	}))
+	defer server.Close()
+
+	env := runCommand(t, server.URL, "create", "--room", "demo")
+
+	if env.Status != http.StatusOK {
+		t.Fatalf("status=%d want=%d", env.Status, http.StatusOK)
+	}
+
+	body, ok := env.Body.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map body, got=%T", env.Body)
+	}
+	if body["created"] != false {
+		t.Fatalf("created=%v want=false", body["created"])
+	}
+}
+
 func TestMountCommandIntegration(t *testing.T) {
 	t.Parallel()
 
