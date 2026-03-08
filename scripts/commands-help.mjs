@@ -33,6 +33,11 @@ const commands = [
     name: "npm run test:integration:real-mcp",
     description: "Run real MCP integration tests (negative + host lifecycle positive).",
   },
+  {
+    name: "npm run upstream:strict-init:status",
+    description:
+      "Check upstream strict-init blocker status (GitHub issue/PR + npm latest ext-apps).",
+  },
 ];
 
 console.log("Recommended commands");
