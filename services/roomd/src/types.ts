@@ -110,6 +110,7 @@ export interface RoomMountTool {
 
 export interface RoomMount {
   instanceId: string;
+  mountNonce: string;
   server: string;
   uiResourceUri?: string;
   session: NegotiatedSession;
@@ -183,28 +184,24 @@ export interface RoomInvocation {
   error?: string;
 }
 
-export type RoomEvidenceSource = "roomd" | "host" | "app";
-
-export type RoomEvidenceEvent =
-  | "room_created"
-  | "mount_applied"
-  | "rpc_sent"
-  | "rpc_succeeded"
-  | "rpc_failed"
+export type LifecyclePhase =
   | "bridge_connected"
   | "resource_delivered"
   | "app_initialized"
   | "app_error";
 
-export interface RoomEvidence {
-  evidenceId: string;
-  revision: number;
-  timestamp: string;
-  source: RoomEvidenceSource;
-  event: RoomEvidenceEvent;
-  instanceId?: string;
-  invocationId?: string;
-  details?: Record<string, unknown>;
+export interface InstanceLifecycle {
+  instanceId: string;
+  mountNonce: string;
+  sessionId: string;
+  phase: LifecyclePhase;
+  seq: number;
+  updatedAt: string;
+  lastError?: string;
+}
+
+export interface RoomLifecycle {
+  instances: InstanceLifecycle[];
 }
 
 export type RoomAssuranceLevel =
@@ -232,7 +229,7 @@ export interface RoomState {
   order: string[];
   selectedInstanceId: string | null;
   invocations: RoomInvocation[];
-  evidence: RoomEvidence[];
+  lifecycle: RoomLifecycle;
   assurance: RoomAssurance;
 }
 
@@ -251,7 +248,7 @@ export type RoomEvent =
         | "select"
         | "reorder"
         | "layout"
-        | "evidence";
+        | "lifecycle";
       state: RoomState;
     }
   | {

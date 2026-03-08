@@ -7,10 +7,6 @@ import (
 )
 
 var (
-	roomStateThenMountSuggestions = []suggestion{
-		{Cmd: "roomctl state --room {{room}}", Description: "Use the existing room and inspect current state."},
-		{Cmd: "roomctl mount --room {{room}} --instance {{instance}} --server {{server}} --container {{x}},{{y}},{{w}},{{h}}", Description: "Proceed by mounting an instance into the existing room."},
-	}
 	instanceExistsSuggestions = []suggestion{
 		{Cmd: "roomctl state --room {{room}}", Description: "Confirm the existing instance and current layout before remounting."},
 		{Cmd: "roomctl mount --room {{room}} --instance {{instance}} --server {{server}} --container {{x}},{{y}},{{w}},{{h}}", Description: "Retry with a new instance ID if another mount is required."},
@@ -70,7 +66,6 @@ var (
 )
 
 var errorSuggestions = map[string][]suggestion{
-	"ROOM_EXISTS":    roomStateThenMountSuggestions,
 	"ROOM_NOT_FOUND": roomCreateThenMountSuggestions,
 	"ROOM_NOT_EMPTY": {
 		{Cmd: "roomctl state --room {{room}}", Description: "Inspect existing mounts before applying another configuration."},
@@ -92,13 +87,14 @@ var errorSuggestions = map[string][]suggestion{
 	"UPSTREAM_TRANSPORT_ERROR": inspectThenHealthSuggestions,
 	"ROOMD_UNREACHABLE":        startThenHealthSuggestions,
 	"ROOMD_TIMEOUT":            timeoutRetrySuggestions,
-	"EVIDENCE_TIMEOUT": {
-		{Cmd: "roomctl state --room {{room}}", Description: "Inspect current evidence and assurance levels before retrying wait conditions."},
-		{Cmd: "roomctl await --room {{room}} --event {{event}} --max-wait {{timeout}}", Description: "Retry with a larger wait budget when lifecycle events are delayed."},
+	"PHASE_TIMEOUT": {
+		{Cmd: "roomctl state --room {{room}}", Description: "Inspect current lifecycle state and assurance levels before retrying wait conditions."},
+		{Cmd: "roomctl await --room {{room}} --phase {{phase}} --instance {{instance}} --max-wait {{timeout}}", Description: "Retry with a larger wait budget when lifecycle phases are delayed."},
+		{Cmd: "roomctl readiness --room {{room}} --instance {{instance}} --phase {{phase}}", Description: "Inspect blockers and last error for the requested lifecycle phase."},
 	},
-	"REQUIRED_EVIDENCE_MISSING": {
-		{Cmd: "roomctl state --room {{room}}", Description: "Inspect lifecycle evidence and assurance to diagnose missing post-call signals."},
-		{Cmd: "roomctl await --room {{room}} --instance {{instance}} --event {{event}}", Description: "Wait for required lifecycle evidence before presenting user-visible outcomes as proven."},
+	"REQUIRED_PHASE_MISSING": {
+		{Cmd: "roomctl readiness --room {{room}} --instance {{instance}} --phase {{phase}}", Description: "Inspect current phase, blockers, and last error to diagnose missing post-call lifecycle progression."},
+		{Cmd: "roomctl await --room {{room}} --instance {{instance}} --phase {{phase}}", Description: "Wait for the required lifecycle phase before presenting user-visible outcomes as proven."},
 	},
 	"INVALID_BASE_URL": {
 		{Cmd: "roomctl health --base-url {{base-url}}", Description: "Use a valid roomd URL including scheme and host."},
@@ -159,8 +155,13 @@ var defaultCommandSuggestions = map[string][]suggestion{
 		{Cmd: "roomctl state --room {{room}}", Description: "Inspect full state to discover available paths."},
 	},
 	"await": {
-		{Cmd: "roomctl state --room {{room}}", Description: "Inspect latest evidence records and assurance summaries for this room."},
-		{Cmd: "roomctl await --room {{room}} --event {{event}} --instance {{instance}}", Description: "Wait for specific instance lifecycle evidence before declaring UI outcomes."},
+		{Cmd: "roomctl state --room {{room}}", Description: "Inspect latest lifecycle state and assurance summaries for this room."},
+		{Cmd: "roomctl await --room {{room}} --phase {{phase}} --instance {{instance}}", Description: "Wait for a specific instance lifecycle phase before declaring UI outcomes."},
+		{Cmd: "roomctl readiness --room {{room}} --instance {{instance}} --phase {{phase}}", Description: "Check current lifecycle blockers and a recommended next command."},
+	},
+	"readiness": {
+		{Cmd: "roomctl state --room {{room}}", Description: "Inspect complete room lifecycle state and assurance context."},
+		{Cmd: "roomctl await --room {{room}} --instance {{instance}} --phase {{phase}}", Description: "Wait until the requested lifecycle phase is observed."},
 	},
 	"tools-list": {
 		{Cmd: "roomctl tool-call --room {{room}} --instance {{instance}} --name {{tool}} --arguments {{arguments-json}}", Description: "Call one of the listed tools."},

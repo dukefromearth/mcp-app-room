@@ -15,7 +15,7 @@ const repoRoot = resolve(__dirname, "..");
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 
 function usage() {
-  console.error("Usage: node scripts/run-host.mjs <start|dev|serve> [--config <path>]");
+  console.error("Usage: node scripts/run-host.mjs <start|dev|serve>");
 }
 
 function parseArgs(args) {
@@ -30,24 +30,12 @@ function parseArgs(args) {
     process.exit(1);
   }
 
-  let configPath;
   for (let i = 1; i < args.length; i++) {
-    const token = args[i];
-    if (token === "--config") {
-      const value = args[i + 1];
-      if (!value) {
-        throw new Error("--config requires a value");
-      }
-      configPath = value;
-      i += 1;
-      continue;
-    }
-    throw new Error(`Unknown argument: ${token}`);
+    throw new Error(`Unknown argument for startup command: ${args[i]}`);
   }
 
   return {
     mode,
-    configPath,
   };
 }
 
@@ -86,7 +74,6 @@ try {
 
 const configPath = resolveGlobalConfigPath({
   repoRoot,
-  cliConfigPath: options.configPath,
 });
 
 let config;

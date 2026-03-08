@@ -18,6 +18,7 @@ npm run repo:guard:baseline
 npm run setup:hooks        # optional pre-commit hook install
 npm run verify:fast        # preferred fast local gate
 npm run verify             # preferred pre-push gate
+npm run test:integration:real-mcp  # canonical real-MCP integration gate
 ```
 
 ## Target-State Rules

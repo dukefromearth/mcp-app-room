@@ -18,6 +18,10 @@ const commands = [
     description: "Main pre-push command (fast checks + build + tests).",
   },
   {
+    name: "npm run test:integration:real-mcp",
+    description: "Canonical real-MCP integration suite (required PR gate).",
+  },
+  {
     name: "npm run verify:full",
     description: "Full gate (verify + e2e + conformance Tier 1).",
   },

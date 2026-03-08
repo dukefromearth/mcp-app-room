@@ -31,12 +31,16 @@ export interface RoomdClient {
   ): Promise<unknown>;
   fetchUiResource(roomId: string, instanceId: string): Promise<UiResource>;
   fetchCapabilities(roomId: string, instanceId: string): Promise<Record<string, unknown> | null>;
-  reportInstanceEvidence(
+  reportInstanceLifecycle(
     roomId: string,
     instanceId: string,
-    event: "bridge_connected" | "resource_delivered" | "app_initialized" | "app_error",
-    details?: Record<string, unknown>,
-    invocationId?: string,
+    payload: {
+      mountNonce: string;
+      sessionId: string;
+      seq: number;
+      phase: "bridge_connected" | "resource_delivered" | "app_initialized" | "app_error";
+      details?: Record<string, unknown>;
+    },
   ): Promise<void>;
   postInstanceJson(roomId: string, instanceId: string, pathSuffix: string, body: unknown): Promise<unknown>;
   getEventsUrl(roomId: string, sinceRevision: number): string;
@@ -58,8 +62,16 @@ export function createRoomdClient(roomdUrl: string): RoomdClient {
   return {
     async ensureRoom(roomId: string): Promise<void> {
       const response = await postJson("/rooms", { roomId });
-      if (response.status !== 201 && response.status !== 409) {
+      if (response.status !== 201 && response.status !== 200) {
         await throwRoomdResponseError(response);
+      }
+      const parsed = await parseJson<{ created?: boolean }>(response);
+      if (typeof parsed.created !== "boolean") {
+        throw new RoomdRequestError(
+          502,
+          "UPSTREAM_TRANSPORT_ERROR",
+          "roomd /rooms response missing created boolean",
+        );
       }
     },
     async fetchRoomState(roomId: string): Promise<RoomState> {
@@ -110,29 +122,33 @@ export function createRoomdClient(roomdUrl: string): RoomdClient {
       }
       return (await parseJson<{ capabilities: Record<string, unknown> }>(response)).capabilities;
     },
-    async reportInstanceEvidence(
+    async reportInstanceLifecycle(
       roomId: string,
       instanceId: string,
-      event: "bridge_connected" | "resource_delivered" | "app_initialized" | "app_error",
-      details?: Record<string, unknown>,
-      invocationId?: string,
-    ): Promise<void> {
-      const payload: {
-        source: "host";
-        event: "bridge_connected" | "resource_delivered" | "app_initialized" | "app_error";
+      payload: {
+        mountNonce: string;
+        sessionId: string;
+        seq: number;
+        phase: "bridge_connected" | "resource_delivered" | "app_initialized" | "app_error";
         details?: Record<string, unknown>;
-        invocationId?: string;
+      },
+    ): Promise<void> {
+      const requestBody: {
+        mountNonce: string;
+        sessionId: string;
+        seq: number;
+        phase: "bridge_connected" | "resource_delivered" | "app_initialized" | "app_error";
+        details?: Record<string, unknown>;
       } = {
-        source: "host",
-        event,
+        mountNonce: payload.mountNonce,
+        sessionId: payload.sessionId,
+        seq: payload.seq,
+        phase: payload.phase,
       };
-      if (details) {
-        payload.details = details;
+      if (payload.details) {
+        requestBody.details = payload.details;
       }
-      if (invocationId) {
-        payload.invocationId = invocationId;
-      }
-      const response = await postJson(instancePath(roomId, instanceId, "/evidence"), payload);
+      const response = await postJson(instancePath(roomId, instanceId, "/lifecycle"), requestBody);
       if (!response.ok) {
         await throwRoomdResponseError(response);
       }

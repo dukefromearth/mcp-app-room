@@ -96,9 +96,7 @@ await roomConfigRepository.initialize();
 const roomConfigService = new RoomConfigService(roomConfigRepository, store);
 
 for (const roomId of parseCommaList(process.env.ROOMD_BOOTSTRAP_ROOMS)) {
-  if (!store.hasRoom(roomId)) {
-    store.createRoom(roomId);
-  }
+  store.createRoom(roomId);
 }
 
 const app = express();
@@ -147,8 +145,12 @@ app.get("/health", (_req, res) => {
 app.post("/rooms", (req, res, next) => {
   try {
     const { roomId } = createRoomSchema.parse(req.body);
-    const state = store.createRoom(roomId);
-    res.status(201).json({ ok: true, state });
+    const result = store.createRoomWithStatus(roomId);
+    res.status(result.created ? 201 : 200).json({
+      ok: true,
+      created: result.created,
+      state: result.state,
+    });
   } catch (error) {
     next(error);
   }

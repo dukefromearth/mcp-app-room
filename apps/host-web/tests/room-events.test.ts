@@ -25,7 +25,9 @@ function createRoomState(overrides: Partial<RoomState> = {}): RoomState {
     order: [],
     selectedInstanceId: null,
     invocations: [],
-    evidence: [],
+    lifecycle: {
+      instances: [],
+    },
     assurance: {
       generatedAt: new Date(0).toISOString(),
       instances: [],
@@ -56,12 +58,8 @@ describe("subscribeToRoomEvents", () => {
       mounts: [
         {
           instanceId: "ledger",
+          mountNonce: "mnt-ledger",
           server: "http://localhost:3001/mcp",
-          session: {
-            capabilities: {},
-            extensions: {},
-            transport: "streamable-http",
-          },
           visible: true,
           container: { x: 0, y: 0, w: 6, h: 4 },
           tools: [],

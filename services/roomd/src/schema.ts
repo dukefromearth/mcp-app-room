@@ -301,15 +301,16 @@ export const elicitationUpdateSchema = mountClientElicitationSchema;
 
 export const capabilityPreviewSchema = z.record(z.string(), z.unknown());
 
-export const instanceEvidenceSchema = z.object({
-  source: z.enum(["host", "app"]).default("host"),
-  event: z.enum([
+export const instanceLifecycleSchema = z.object({
+  mountNonce: z.string().min(1),
+  sessionId: z.string().min(1),
+  seq: z.number().int().min(1),
+  phase: z.enum([
     "bridge_connected",
     "resource_delivered",
     "app_initialized",
     "app_error",
   ]),
-  invocationId: z.string().min(1).optional(),
   details: z.record(z.string(), z.unknown()).optional(),
 });
 

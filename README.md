@@ -47,12 +47,13 @@ Security behavior is profile-driven via `config/global.yaml`:
 
 `npm` scripts (`host:start`, `roomd:start`, `roomd:cli`, `host:open`) resolve
 runtime wiring from `config/global.yaml` by default (or `MCP_APP_ROOM_CONFIG` when set).
-Use explicit flags for overrides.
+Startup scripts (`host:start`, `roomd:start`) intentionally do not accept runtime
+override flags; use `config/global.yaml` as the canonical startup contract.
 
-To run roomd in strict mode locally:
+To run roomd in strict mode locally, set `security.profile: strict` in `config/global.yaml` and run:
 
 ```bash
-npm run roomd:start:strict
+npm run roomd:start
 ```
 
 Open:
@@ -94,6 +95,7 @@ Canonical real MCP server fixture for integration tests:
 
 ```bash
 npm run fixture:integration-server
+npm run test:integration:real-mcp
 ```
 
 Fixture source lives at `e2e/fixtures/integration-server`.

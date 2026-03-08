@@ -4,10 +4,10 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { once } from "node:events";
-import { createServer as createNetServer } from "node:net";
 import type { Socket } from "node:net";
 import { fileURLToPath } from "node:url";
+
+import { getFreePort, runCommand, terminateProcess, waitForHttp } from "./support/process-utils";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -66,7 +66,8 @@ test("global YAML drives both roomctl and host room bootstrap", async ({ page })
       "--output",
       "json",
     ],
-    {},
+    repoRoot,
+    process.env,
   );
 
   expect(cli.exitCode).toBe(0);
@@ -94,7 +95,7 @@ test("global YAML drives both roomctl and host room bootstrap", async ({ page })
   );
 
   try {
-    await waitForHttpOk(`http://127.0.0.1:${hostPort}/api/host-config`, 45_000);
+    await waitForHttp(`http://127.0.0.1:${hostPort}/api/host-config`, (status) => status === 200, 45_000);
     const hostConfigResponse = await fetch(`http://127.0.0.1:${hostPort}/api/host-config`);
     expect(hostConfigResponse.ok).toBe(true);
     const hostConfig = (await hostConfigResponse.json()) as {
@@ -166,7 +167,8 @@ test("roomctl --base-url overrides YAML baseUrl", async () => {
         "--output",
         "json",
       ],
-      {},
+      repoRoot,
+      process.env,
     );
 
     expect(cli.exitCode).toBe(0);
@@ -187,11 +189,28 @@ function createMockRoomd(port: number): {
   start: () => Promise<void>;
   stop: () => Promise<void>;
 } {
+  const createdRooms = new Set<string>();
   const state: MockState = {
     healthHits: 0,
     createRoomBodies: [],
     stateHits: 0,
   };
+
+  const emptyRoomState = (roomIdValue: string) => ({
+    roomId: roomIdValue,
+    revision: 1,
+    mounts: [],
+    order: [],
+    selectedInstanceId: null,
+    invocations: [],
+    lifecycle: {
+      instances: [],
+    },
+    assurance: {
+      generatedAt: "2026-03-01T00:00:00Z",
+      instances: [],
+    },
+  });
 
   const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? "/", `http://127.0.0.1:${port}`);
@@ -215,12 +234,23 @@ function createMockRoomd(port: number): {
         raw += String(chunk);
       });
       req.on("end", () => {
+        let roomIdValue = "";
         try {
-          state.createRoomBodies.push(JSON.parse(raw) as { roomId?: string });
+          const parsed = JSON.parse(raw) as { roomId?: string };
+          state.createRoomBodies.push(parsed);
+          roomIdValue = String(parsed.roomId ?? "");
         } catch {
           state.createRoomBodies.push({});
         }
-        json(res, 201, { ok: true });
+        const created = roomIdValue.length > 0 && !createdRooms.has(roomIdValue);
+        if (roomIdValue.length > 0) {
+          createdRooms.add(roomIdValue);
+        }
+        json(res, created ? 201 : 200, {
+          ok: true,
+          created,
+          state: emptyRoomState(roomIdValue || roomId),
+        });
       });
       return;
     }
@@ -230,14 +260,8 @@ function createMockRoomd(port: number): {
       state.stateHits += 1;
       const requestedRoomId = decodeURIComponent(roomStateMatch[1]);
       json(res, 200, {
-        state: {
-          roomId: requestedRoomId,
-          revision: 1,
-          mounts: [],
-          order: [],
-          selectedInstanceId: null,
-          invocations: [],
-        },
+        ok: true,
+        state: emptyRoomState(requestedRoomId),
       });
       return;
     }
@@ -254,12 +278,7 @@ function createMockRoomd(port: number): {
           revision: 1,
           type: "state-updated",
           state: {
-            roomId: decodeURIComponent(roomEventsMatch[1]),
-            revision: 1,
-            mounts: [],
-            order: [],
-            selectedInstanceId: null,
-            invocations: [],
+            ...emptyRoomState(decodeURIComponent(roomEventsMatch[1])),
           },
         })}\n\n`,
       );
@@ -342,96 +361,4 @@ function setCorsHeaders(res: ServerResponse): void {
   res.setHeader("access-control-allow-origin", "*");
   res.setHeader("access-control-allow-methods", "GET,POST,OPTIONS");
   res.setHeader("access-control-allow-headers", "content-type,accept");
-}
-
-async function getFreePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const server = createNetServer();
-    server.listen(0, "127.0.0.1");
-    server.on("listening", () => {
-      const address = server.address();
-      if (!address || typeof address === "string") {
-        reject(new Error("Unable to resolve free port"));
-        return;
-      }
-      const port = address.port;
-      server.close((error) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        resolve(port);
-      });
-    });
-    server.on("error", reject);
-  });
-}
-
-async function waitForHttpOk(url: string, timeoutMs: number): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      const response = await fetch(url);
-      if (response.ok) {
-        return;
-      }
-    } catch {
-      // Retry until deadline.
-    }
-    await new Promise((resolve) => setTimeout(resolve, 200));
-  }
-  throw new Error(`Timed out waiting for ${url}`);
-}
-
-async function runCommand(
-  command: string,
-  args: string[],
-  extraEnv: Record<string, string>,
-): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      cwd: repoRoot,
-      env: {
-        ...process.env,
-        ...extraEnv,
-      },
-      stdio: "pipe",
-    });
-
-    let stdout = "";
-    let stderr = "";
-
-    child.stdout.on("data", (chunk) => {
-      stdout += String(chunk);
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += String(chunk);
-    });
-    child.on("error", reject);
-    child.on("exit", (code) => {
-      resolve({
-        exitCode: code ?? 1,
-        stdout: stdout.trim(),
-        stderr: stderr.trim(),
-      });
-    });
-  });
-}
-
-async function terminateProcess(child: ReturnType<typeof spawn>): Promise<void> {
-  if (child.killed) {
-    return;
-  }
-
-  child.kill("SIGTERM");
-  const exitedOnTerm = await Promise.race([
-    once(child, "exit").then(() => true).catch(() => false),
-    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 5_000)),
-  ]);
-  if (exitedOnTerm) {
-    return;
-  }
-
-  child.kill("SIGKILL");
-  await once(child, "exit").catch(() => undefined);
 }

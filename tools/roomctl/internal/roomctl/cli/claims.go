@@ -67,14 +67,14 @@ func deriveClaims(command string, body map[string]any) (map[string]any, bool) {
 
 	// GOTCHA: tool-call success only proves RPC completion; UI impact remains unknown.
 	if command == "tool-call" && body["ok"] != false {
-		if matches, ok := body["evidenceMatches"].(map[string]any); ok && len(matches) > 0 {
+		if match, ok := body["phaseMatch"].(map[string]any); ok && len(match) > 0 {
 			proven := []string{
 				"Tool RPC completed against upstream MCP endpoint.",
 			}
-			if _, hasInitialized := matches["app_initialized"]; hasInitialized {
-				proven = append(proven, "Observed app_initialized lifecycle evidence for this call.")
+			if strings.TrimSpace(asString(match["phase"])) == "app_initialized" {
+				proven = append(proven, "Observed app_initialized lifecycle phase for this call.")
 			} else {
-				proven = append(proven, "Observed lifecycle evidence for this call.")
+				proven = append(proven, "Observed required lifecycle phase for this call.")
 			}
 			return map[string]any{
 				"proven":  proven,
@@ -86,7 +86,7 @@ func deriveClaims(command string, body map[string]any) (map[string]any, bool) {
 				"Tool RPC completed against upstream MCP endpoint.",
 			},
 			"unknown": []string{
-				"User-visible UI impact is unknown without lifecycle evidence.",
+				"User-visible UI impact is unknown without required lifecycle phase progression.",
 			},
 		}, true
 	}

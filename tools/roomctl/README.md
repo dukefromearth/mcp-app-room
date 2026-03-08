@@ -19,7 +19,8 @@ npm run roomd:cli -- mount --room demo --instance inst-stdio --server "stdio://s
 npm run roomd:cli -- prompts-get --room demo --instance inst-1 --name summarize --arguments '{"topic":"mcp"}'
 npm run roomd:cli -- complete --room demo --instance inst-1 --params '{"ref":{"type":"ref/prompt","name":"summarize"},"argument":{"name":"topic","value":"mc"}}'
 npm run roomd:cli -- resources-subscribe --room demo --instance inst-1 --uri file://notes.md
-npm run roomd:cli -- await --room demo --instance inst-1 --event app_initialized --max-wait 20s
+npm run roomd:cli -- await --room demo --instance inst-1 --phase app_initialized --max-wait 20s
+npm run roomd:cli -- readiness --room demo --instance inst-1 --phase app_initialized
 npm run roomd:cli -- room-config-upsert --config banking-room --spec '{"schemaVersion":"room-config.v1","instances":[{"instanceId":"ledger","server":"http://localhost:3114/mcp","container":{"x":0,"y":0,"w":6,"h":4}}]}'
 npm run roomd:cli -- room-config-plan --config banking-room --room demo
 npm run roomd:cli -- room-config-load --config banking-room --room demo --idempotency-key cfg-load-1
@@ -36,12 +37,12 @@ contract.
 - `description`: brief explanation of why that command is the likely next step
 
 `roomctl` also enriches successful responses with protocol certainty claims:
-- `body.claims.proven`: facts backed by room state/evidence.
+- `body.claims.proven`: facts backed by room state/lifecycle phases.
 - `body.claims.unknown`: explicitly unresolved user-visible outcomes.
 
 `tool-call` defaults to lifecycle waiting for UI-backed instances that are not yet
-proven initialized; this reduces false positives where RPC success is mistaken for
-visible UI success.
+at `app_initialized`; this reduces false positives where RPC success is mistaken
+for visible UI success.
 
 Config resolution:
 

@@ -1,8 +1,41 @@
 import type { SidebarMountTool } from "../dev-sidebar/contracts";
 import type { HostUiResourceCsp, HostUiResourcePermissions } from "../implementation";
 
+export type LifecyclePhase =
+  | "bridge_connected"
+  | "resource_delivered"
+  | "app_initialized"
+  | "app_error";
+
+export interface InstanceLifecycle {
+  instanceId: string;
+  mountNonce: string;
+  sessionId: string;
+  phase: LifecyclePhase;
+  seq: number;
+  updatedAt: string;
+  lastError?: string;
+}
+
+export interface RoomLifecycle {
+  instances: InstanceLifecycle[];
+}
+
+export interface InstanceAssurance {
+  instanceId: string;
+  level: "control_plane_ok" | "ui_bridge_connected" | "ui_resource_delivered" | "ui_app_initialized";
+  proven: string[];
+  unknown: string[];
+}
+
+export interface RoomAssurance {
+  generatedAt: string;
+  instances: InstanceAssurance[];
+}
+
 export interface RoomMount {
   instanceId: string;
+  mountNonce: string;
   server: string;
   uiResourceUri?: string;
   visible: boolean;
@@ -27,6 +60,8 @@ export interface RoomState {
   mounts: RoomMount[];
   selectedInstanceId: string | null;
   invocations: RoomInvocation[];
+  lifecycle: RoomLifecycle;
+  assurance: RoomAssurance;
 }
 
 export interface RoomEvent {

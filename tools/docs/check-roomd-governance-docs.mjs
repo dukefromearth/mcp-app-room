@@ -41,6 +41,7 @@ async function main() {
   assertContainsAll(releaseChecklistPath, releaseChecklist, [
     "## Release Readiness Checklist",
     "Tier 1 conformance artifact",
+    "Lifecycle integrity gate passed",
     "Support matrix updated",
     "Deprecation policy reviewed",
   ]);
@@ -102,6 +103,14 @@ async function main() {
   assert(
     checklistSummary.requiresConformanceArtifactPath === "artifacts/conformance",
     `${releaseChecklistPath}: requiresConformanceArtifactPath must be artifacts/conformance`,
+  );
+  assert(
+    checklistSummary.requiresLifecycleIntegrityArtifactPath === "artifacts/real-mcp",
+    `${releaseChecklistPath}: requiresLifecycleIntegrityArtifactPath must be artifacts/real-mcp`,
+  );
+  assert(
+    checklistSummary.requiresRealMcpGateCommand === "npm run test:integration:real-mcp",
+    `${releaseChecklistPath}: requiresRealMcpGateCommand must be npm run test:integration:real-mcp`,
   );
   assert(
     Array.isArray(checklistSummary.requiredPolicyDocs) &&

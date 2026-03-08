@@ -31,26 +31,46 @@ export function RoomAppInstance({
   const themeUnsubscribeRef = useRef<(() => void) | null>(null);
   const sentInputInvocationRef = useRef<string | null>(null);
   const sentResultInvocationRef = useRef<string | null>(null);
+  const setupGenerationRef = useRef(0);
   const [bridgeReady, setBridgeReady] = useState(false);
   const [resource, setResource] = useState<UiResource | null>(null);
 
   useEffect(() => {
+    const generation = ++setupGenerationRef.current;
     let disposed = false;
+    const sessionId = globalThis.crypto?.randomUUID?.() ?? `session-${Date.now()}-${generation}`;
+    const reportedPhases = new Set<
+      "bridge_connected" | "resource_delivered" | "app_initialized" | "app_error"
+    >();
+    let seq = 1;
 
-    const reportEvidence = async (
-      event: "bridge_connected" | "resource_delivered" | "app_initialized" | "app_error",
+    const isCurrentGeneration = () =>
+      !disposed && setupGenerationRef.current === generation;
+
+    const reportPhase = async (
+      phase: "bridge_connected" | "resource_delivered" | "app_initialized" | "app_error",
       details?: Record<string, unknown>,
     ) => {
+      if (!isCurrentGeneration() || reportedPhases.has(phase)) {
+        return;
+      }
       try {
-        await roomdClient.reportInstanceEvidence(
+        await roomdClient.reportInstanceLifecycle(
           roomId,
           mount.instanceId,
-          event,
-          details,
+          {
+            mountNonce: mount.mountNonce,
+            sessionId,
+            seq,
+            phase,
+            ...(details ? { details } : {}),
+          },
         );
+        reportedPhases.add(phase);
+        seq += 1;
       } catch (error) {
-        // GOTCHA: Evidence reporting must never block app bootstrap.
-        log.warn("Failed to report instance lifecycle evidence", error);
+        // GOTCHA: lifecycle reporting must never block app bootstrap.
+        log.warn("Failed to report instance lifecycle phase", error);
       }
     };
 
@@ -60,7 +80,7 @@ export function RoomAppInstance({
         return;
       }
       const fetched = await roomdClient.fetchUiResource(roomId, mount.instanceId);
-      if (disposed) {
+      if (!isCurrentGeneration()) {
         return;
       }
       setResource(fetched);
@@ -73,7 +93,7 @@ export function RoomAppInstance({
         return;
       }
       const capabilities = await roomdClient.fetchCapabilities(roomId, mount.instanceId);
-      if (disposed) {
+      if (!isCurrentGeneration()) {
         return;
       }
       const appBridge = newRoomAppBridge(capabilities);
@@ -84,29 +104,35 @@ export function RoomAppInstance({
         instanceId: mount.instanceId,
       });
       appBridge.oninitialized = () => {
-        void reportEvidence("app_initialized");
+        void reportPhase("app_initialized");
       };
 
       // GOTCHA: The bridge must be connected before resource-ready, but we
       // cannot wait for app initialization first because initialization depends
       // on receiving this resource payload.
       await connectRoomAppBridge(appBridge, iframe);
-      await reportEvidence("bridge_connected");
+      await reportPhase("bridge_connected");
+      if (!isCurrentGeneration()) {
+        return;
+      }
       await appBridge.sendSandboxResourceReady({
         html: fetched.html,
         csp: fetched.csp,
         permissions: fetched.permissions,
       });
-      await reportEvidence("resource_delivered", {
+      await reportPhase("resource_delivered", {
         uiResourceUri: fetched.uiResourceUri,
       });
+      if (!isCurrentGeneration()) {
+        return;
+      }
       appBridgeRef.current = appBridge;
       setBridgeReady(true);
     };
 
     setup().catch((setupError) => {
       log.error("Failed to initialize room app instance", setupError);
-      void reportEvidence("app_error", {
+      void reportPhase("app_error", {
         message:
           setupError instanceof Error ? setupError.message : String(setupError),
       });
@@ -128,7 +154,7 @@ export function RoomAppInstance({
       sentInputInvocationRef.current = null;
       sentResultInvocationRef.current = null;
     };
-  }, [mount.instanceId, mount.uiResourceUri, roomId, roomdClient]);
+  }, [mount.instanceId, mount.mountNonce, mount.uiResourceUri, roomId, roomdClient]);
 
   useEffect(() => {
     if (!bridgeReady || !appBridgeRef.current || !invocation) {

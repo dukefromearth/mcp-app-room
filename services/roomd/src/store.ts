@@ -16,6 +16,13 @@ import {
   parseToolsPage,
 } from "./store/parsing";
 import { assertServerAllowed as assertServerAllowedByPolicy } from "./store/server-policy";
+import {
+  buildAssuranceFromLifecycle,
+  buildLifecycle,
+  createMountNonce,
+  transitionLifecycle,
+  type RoomLifecycleRuntime,
+} from "./store/lifecycle";
 import { getRoomdLogger, serializeError } from "./logging";
 import type {
   ClientRoot,
@@ -27,15 +34,13 @@ import type {
   InstanceClientCapabilitiesConfig,
   LayoutAdapterName,
   LayoutOp,
+  LifecyclePhase,
   McpSession,
   McpSessionFactory,
   NegotiatedSession,
   PromptGetParams,
   ResourceSubscriptionParams,
   RoomCommand,
-  RoomEvidence,
-  RoomEvidenceEvent,
-  RoomEvidenceSource,
   RoomEvent,
   RoomInvocation,
   RoomMount,
@@ -58,8 +63,8 @@ interface RoomRuntime {
   invocations: Map<string, RoomInvocation>;
   invocationOrder: string[];
   idempotency: Map<string, IdempotencyRecord>;
-  evidence: RoomEvidence[];
-  evidenceCounter: number;
+  lifecycleByInstance: Map<string, RoomLifecycleRuntime>;
+  lifecycleSessionIdsByInstance: Map<string, Set<string>>;
   events: RoomEvent[];
   subscribers: Set<(event: RoomEvent) => void>;
 }
@@ -73,12 +78,21 @@ interface RoomStoreOptions {
   allowRemoteHttpServers?: boolean;
   remoteHttpOriginAllowlist?: string[];
   clientCapabilityRegistry?: ClientCapabilityRegistry;
-  evidenceHistoryLimit?: number;
 }
 
 interface CommandExecutionResult {
   statusCode: number;
   response: CommandSuccessResponse;
+}
+
+interface CreateRoomResult {
+  state: RoomState;
+  created: boolean;
+}
+
+interface ReportLifecycleResult {
+  state: RoomState;
+  accepted: "applied" | "duplicate";
 }
 
 const INSPECTION_ROOM_ID = "__inspect__";
@@ -96,7 +110,7 @@ export class RoomStore {
   private readonly allowRemoteHttpServers: boolean;
   private readonly remoteHttpOriginAllowlist: string[];
   private readonly clientCapabilityRegistry: ClientCapabilityRegistry;
-  private readonly evidenceHistoryLimit: number;
+  private mountNonceCounter = 1;
 
   constructor(
     private readonly sessionFactory: McpSessionFactory,
@@ -111,12 +125,19 @@ export class RoomStore {
     this.remoteHttpOriginAllowlist = options.remoteHttpOriginAllowlist ?? [];
     this.clientCapabilityRegistry =
       options.clientCapabilityRegistry ?? new ClientCapabilityRegistry();
-    this.evidenceHistoryLimit = options.evidenceHistoryLimit ?? 1000;
   }
 
   createRoom(roomId: string): RoomState {
-    if (this.rooms.has(roomId)) {
-      throw new HttpError(409, "ROOM_EXISTS", `Room already exists: ${roomId}`);
+    return this.createRoomWithStatus(roomId).state;
+  }
+
+  createRoomWithStatus(roomId: string): CreateRoomResult {
+    const existing = this.rooms.get(roomId);
+    if (existing) {
+      return {
+        state: this.buildState(existing),
+        created: false,
+      };
     }
 
     const room: RoomRuntime = {
@@ -129,19 +150,17 @@ export class RoomStore {
       invocations: new Map(),
       invocationOrder: [],
       idempotency: new Map(),
-      evidence: [],
-      evidenceCounter: 1,
+      lifecycleByInstance: new Map(),
+      lifecycleSessionIdsByInstance: new Map(),
       events: [],
       subscribers: new Set(),
     };
 
-    this.appendEvidence(room, 0, {
-      source: "roomd",
-      event: "room_created",
-      details: { roomId },
-    });
     this.rooms.set(roomId, room);
-    return this.buildState(room);
+    return {
+      state: this.buildState(room),
+      created: true,
+    };
   }
 
   hasRoom(roomId: string): boolean {
@@ -397,24 +416,71 @@ export class RoomStore {
     );
   }
 
-  reportInstanceEvidence(
+  reportInstanceLifecycle(
     roomId: string,
     instanceId: string,
-    source: RoomEvidenceSource,
-    event: RoomEvidenceEvent,
+    mountNonce: string,
+    sessionId: string,
+    seq: number,
+    phase: LifecyclePhase,
     details?: Record<string, unknown>,
-    invocationId?: string,
-  ): RoomState {
+  ): ReportLifecycleResult {
     const room = this.requireRoom(roomId);
-    this.requireMount(room, instanceId);
-    this.appendEvidence(room, room.revision + 1, {
-      source,
-      event,
+    const mount = this.requireMount(room, instanceId);
+    if (mount.mountNonce !== mountNonce) {
+      throw new HttpError(
+        409,
+        "LIFECYCLE_STALE_MOUNT",
+        `Stale lifecycle mount nonce for instance ${instanceId}`,
+        {
+          details: {
+            expectedMountNonce: mount.mountNonce,
+            receivedMountNonce: mountNonce,
+          },
+          hint: "Refresh room state and retry with the current mount nonce.",
+        },
+      );
+    }
+
+    const existing = room.lifecycleByInstance.get(instanceId);
+    const knownSessions = room.lifecycleSessionIdsByInstance.get(instanceId) ?? new Set<string>();
+    if (existing && existing.mountNonce !== mountNonce) {
+      throw new HttpError(
+        409,
+        "LIFECYCLE_STALE_MOUNT",
+        `Lifecycle stream is stale for instance ${instanceId}`,
+        {
+          details: {
+            expectedMountNonce: existing.mountNonce,
+            receivedMountNonce: mountNonce,
+          },
+        },
+      );
+    }
+    const transition = transitionLifecycle(existing, {
       instanceId,
-      invocationId,
+      mountNonce,
+      sessionId,
+      seq,
+      phase,
       details,
+    }, {
+      knownSessionIds: knownSessions,
     });
-    return this.commit(room, "evidence");
+    if (transition.accepted === "duplicate") {
+      return {
+        state: this.buildState(room),
+        accepted: "duplicate",
+      };
+    }
+    room.lifecycleByInstance.set(instanceId, transition.next);
+    knownSessions.add(sessionId);
+    room.lifecycleSessionIdsByInstance.set(instanceId, knownSessions);
+    const state = this.commit(room, "lifecycle");
+    return {
+      state,
+      accepted: transition.accepted,
+    };
   }
 
   async callInstanceTool(
@@ -457,15 +523,6 @@ export class RoomStore {
     this.insertInvocation(room, invocation);
     // GOTCHA: Tool calls can originate from background/hidden iframes; do not
     // couple invocation traffic to UI selection, or selectedInstanceId will churn.
-    this.appendEvidence(room, room.revision + 1, {
-      source: "roomd",
-      event: "rpc_sent",
-      instanceId: mount.instanceId,
-      invocationId: invocation.invocationId,
-      details: {
-        toolName: name,
-      },
-    });
     this.commit(room, "call");
 
     try {
@@ -476,15 +533,6 @@ export class RoomStore {
         current.status = "completed";
         current.result = result;
         current.error = undefined;
-        this.appendEvidence(currentRoom, currentRoom.revision + 1, {
-          source: "roomd",
-          event: "rpc_succeeded",
-          instanceId: current.instanceId,
-          invocationId: current.invocationId,
-          details: {
-            toolName: current.toolName,
-          },
-        });
         this.commit(currentRoom, "call-result");
       }
       this.logger.info("callInstanceTool.exit", {
@@ -500,16 +548,6 @@ export class RoomStore {
       if (current) {
         current.status = "failed";
         current.error = error instanceof Error ? error.message : String(error);
-        this.appendEvidence(currentRoom, currentRoom.revision + 1, {
-          source: "roomd",
-          event: "rpc_failed",
-          instanceId: current.instanceId,
-          invocationId: current.invocationId,
-          details: {
-            toolName: current.toolName,
-            error: current.error,
-          },
-        });
         this.commit(currentRoom, "call-failed");
       }
       this.logger.debug("callInstanceTool.error", {
@@ -860,6 +898,7 @@ export class RoomStore {
 
       const mount: RoomMount = {
         instanceId: command.instanceId,
+        mountNonce: createMountNonce(command.instanceId, this.mountNonceCounter++),
         server: normalizedServer,
         uiResourceUri: selectedUiResourceUri,
         session: negotiated,
@@ -871,16 +910,8 @@ export class RoomStore {
       room.mounts.set(mount.instanceId, mount);
       room.order.push(mount.instanceId);
       room.selectedInstanceId = mount.instanceId;
-
-      this.appendEvidence(room, room.revision + 1, {
-        source: "roomd",
-        event: "mount_applied",
-        instanceId: mount.instanceId,
-        details: {
-          server: mount.server,
-          uiResourceUri: mount.uiResourceUri ?? null,
-        },
-      });
+      room.lifecycleByInstance.delete(mount.instanceId);
+      room.lifecycleSessionIdsByInstance.delete(mount.instanceId);
       const state = this.commit(room, "mount");
       const response = this.successWithState(state);
       this.logger.info("handleMount.exit", {
@@ -931,6 +962,8 @@ export class RoomStore {
     const mountedServer = mount.server;
 
     room.mounts.delete(instanceId);
+    room.lifecycleByInstance.delete(instanceId);
+    room.lifecycleSessionIdsByInstance.delete(instanceId);
     room.order = room.order.filter((id) => id !== instanceId);
 
     const hasRemainingForServer = [...room.mounts.values()].some(
@@ -1107,100 +1140,6 @@ export class RoomStore {
     };
   }
 
-  private appendEvidence(
-    room: RoomRuntime,
-    revision: number,
-    payload: {
-      source: RoomEvidenceSource;
-      event: RoomEvidenceEvent;
-      instanceId?: string;
-      invocationId?: string;
-      details?: Record<string, unknown>;
-    },
-  ): void {
-    room.evidence.push({
-      evidenceId: `ev-${revision}-${room.evidenceCounter++}`,
-      revision,
-      timestamp: new Date().toISOString(),
-      source: payload.source,
-      event: payload.event,
-      instanceId: payload.instanceId,
-      invocationId: payload.invocationId,
-      details: payload.details
-        ? (cloneUnknown(payload.details) as Record<string, unknown>)
-        : undefined,
-    });
-
-    while (room.evidence.length > this.evidenceHistoryLimit) {
-      room.evidence.shift();
-    }
-  }
-
-  private buildAssurance(
-    mounts: RoomMount[],
-    evidence: RoomEvidence[],
-  ): RoomState["assurance"] {
-    const byInstance = new Map<string, RoomEvidence[]>();
-    for (const item of evidence) {
-      if (!item.instanceId) {
-        continue;
-      }
-      const items = byInstance.get(item.instanceId) ?? [];
-      items.push(item);
-      byInstance.set(item.instanceId, items);
-    }
-
-    const instances = mounts.map((mount) => {
-      const instanceEvidence = byInstance.get(mount.instanceId) ?? [];
-      const hasBridge = instanceEvidence.some((item) => item.event === "bridge_connected");
-      const hasResource = instanceEvidence.some((item) => item.event === "resource_delivered");
-      const hasInitialized = instanceEvidence.some((item) => item.event === "app_initialized");
-      const hasAppError = instanceEvidence.some((item) => item.event === "app_error");
-
-      let level: RoomState["assurance"]["instances"][number]["level"] = "control_plane_ok";
-      if (hasBridge) {
-        level = "ui_bridge_connected";
-      }
-      if (hasResource) {
-        level = "ui_resource_delivered";
-      }
-      if (hasInitialized) {
-        level = "ui_app_initialized";
-      }
-
-      const proven = ["Control-plane mount exists and is addressable."];
-      if (hasBridge) {
-        proven.push("Host bridge connected to sandbox transport.");
-      }
-      if (hasResource) {
-        proven.push("Host delivered UI resource payload to sandbox.");
-      }
-      if (hasInitialized) {
-        proven.push("App signaled initialization through protocol callback.");
-      }
-
-      const unknown: string[] = [];
-      if (!hasInitialized) {
-        unknown.push("User-visible render completeness is unknown.");
-      }
-      if (hasAppError) {
-        unknown.push("App reported a runtime error; current visible state may differ.");
-      }
-
-      return {
-        instanceId: mount.instanceId,
-        level,
-        proven,
-        unknown,
-      };
-    });
-
-    return {
-      generatedAt: new Date().toISOString(),
-      instances,
-    };
-  }
-
   private commit(
     room: RoomRuntime,
     reason: Extract<RoomEvent, { type: "state-updated" }>['reason'],
@@ -1242,10 +1181,7 @@ export class RoomStore {
       .filter((invocation): invocation is RoomInvocation => !!invocation)
       .map((invocation) => ({ ...invocation, input: { ...invocation.input } }));
 
-    const evidence = room.evidence.map((item) => ({
-      ...item,
-      details: item.details ? cloneUnknown(item.details) as Record<string, unknown> : undefined,
-    }));
+    const lifecycle = buildLifecycle(mounts, room.lifecycleByInstance);
 
     return {
       roomId: room.roomId,
@@ -1254,8 +1190,8 @@ export class RoomStore {
       order: [...room.order],
       selectedInstanceId: room.selectedInstanceId,
       invocations,
-      evidence,
-      assurance: this.buildAssurance(mounts, evidence),
+      lifecycle,
+      assurance: buildAssuranceFromLifecycle(mounts, lifecycle),
     };
   }
 

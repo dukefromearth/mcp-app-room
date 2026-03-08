@@ -3,7 +3,7 @@ import { z } from "zod";
 import {
   capabilityPreviewSchema,
   elicitationUpdateSchema,
-  instanceEvidenceSchema,
+  instanceLifecycleSchema,
   rootsUpdateSchema,
   samplingUpdateSchema,
 } from "./schema";
@@ -62,19 +62,25 @@ export function registerInstanceRoutes(
   );
 
   app.post(
-    "/rooms/:roomId/instances/:instanceId/evidence",
+    "/rooms/:roomId/instances/:instanceId/lifecycle",
     async (req, res, next) => {
       try {
-        const body = instanceEvidenceSchema.parse(req.body ?? {});
-        const state = store.reportInstanceEvidence(
+        const body = instanceLifecycleSchema.parse(req.body ?? {});
+        const result = store.reportInstanceLifecycle(
           req.params.roomId,
           req.params.instanceId,
-          body.source,
-          body.event,
+          body.mountNonce,
+          body.sessionId,
+          body.seq,
+          body.phase,
           body.details,
-          body.invocationId,
         );
-        res.json({ ok: true, revision: state.revision, state });
+        res.json({
+          ok: true,
+          accepted: result.accepted,
+          revision: result.state.revision,
+          state: result.state,
+        });
       } catch (error) {
         next(error);
       }

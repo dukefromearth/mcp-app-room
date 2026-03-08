@@ -1,118 +1,28 @@
 import { expect, test } from "@playwright/test";
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { once } from "node:events";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { createServer } from "node:net";
-import { tmpdir } from "node:os";
-import path from "node:path";
 
-type Envelope = {
-  status: number;
-  body: Record<string, any>;
-};
-
-const npmCmd = process.platform === "win32" ? "npm.cmd" : "npm";
-const repoRoot = process.cwd();
-const fixtureServerPath = path.join(
-  repoRoot,
-  "e2e",
-  "fixtures",
-  "integration-server",
-  "main.mjs",
-);
+import { RealMcpHarness } from "./support/real-mcp-harness";
 
 test.describe("roomctl tool-call default await with local real server", () => {
   test.describe.configure({ mode: "serial" });
   test.setTimeout(120_000);
   // GOTCHA: this suite intentionally does not boot host-web, so app_initialized
-  // evidence is expected to remain absent unless explicitly injected.
+  // lifecycle phase is expected to remain absent unless explicitly injected.
 
-  let tempDir = "";
-  let configPath = "";
-  let roomId = "";
-  let roomdPort = 0;
-  let integrationPort = 0;
-  let roomdBaseUrl = "";
-  let integrationServerUrl = "";
+  const harness = new RealMcpHarness(process.cwd());
   let uiResourceUri = "";
 
-  let integrationProcess: ChildProcessWithoutNullStreams | undefined;
-  let roomdProcess: ChildProcessWithoutNullStreams | undefined;
-
   test.beforeAll(async () => {
-    roomdPort = await getFreePort();
-    const hostPort = await getFreePort();
-    const sandboxPort = await getFreePort();
-    integrationPort = await getFreePort();
+    await harness.start("await-real");
 
-    roomdBaseUrl = `http://127.0.0.1:${roomdPort}`;
-    integrationServerUrl = `http://127.0.0.1:${integrationPort}/mcp`;
-    roomId = `await-real-${Date.now()}`;
-
-    tempDir = await mkdtemp(path.join(tmpdir(), "roomctl-await-real-"));
-    configPath = path.join(tempDir, "global.yaml");
-    await writeFile(
-      configPath,
-      [
-        "version: 1",
-        "roomd:",
-        `  baseUrl: \"${roomdBaseUrl}\"`,
-        "host:",
-        "  mode: \"room\"",
-        `  roomId: \"${roomId}\"`,
-        "  ports:",
-        `    host: ${hostPort}`,
-        `    sandbox: ${sandboxPort}`,
-        "  browser:",
-        "    remoteDebuggingPort: 9222",
-        "  servers:",
-        `    - \"${integrationServerUrl}\"`,
-        "security:",
-        "  profile: \"local-dev\"",
-        "",
-      ].join("\n"),
-    );
-
-    integrationProcess = spawn(
-      process.execPath,
-      [fixtureServerPath],
-      {
-        cwd: repoRoot,
-        env: {
-          ...process.env,
-          PORT: String(integrationPort),
-          PLAYWRIGHT_TEST: "1",
-        },
-        stdio: "pipe",
-      },
-    );
-    pipeLogs("[fixture-mcp]", integrationProcess);
-    await waitForHttp(integrationServerUrl, (status) => status > 0, 20_000);
-
-    roomdProcess = spawn(
-      process.execPath,
-      ["scripts/run-roomd.mjs", "start", "--config", configPath],
-      {
-        cwd: repoRoot,
-        env: {
-          ...process.env,
-          PLAYWRIGHT_TEST: "1",
-        },
-        stdio: "pipe",
-      },
-    );
-    pipeLogs("[roomd]", roomdProcess);
-    await waitForHttp(`${roomdBaseUrl}/health`, (status) => status === 200, 30_000);
-
-    const create = await runRoomctl(configPath, ["create", "--room", roomId]);
+    const create = await harness.roomctl(["create", "--room", harness.roomId]);
     if (create.status !== 201 && create.status !== 200) {
       throw new Error(`create failed: status=${create.status} body=${JSON.stringify(create.body)}`);
     }
 
-    const inspect = await runRoomctl(configPath, [
+    const inspect = await harness.roomctl([
       "inspect",
       "--server",
-      integrationServerUrl,
+      harness.integrationServerUrl,
     ]);
     if (inspect.status !== 200) {
       throw new Error(`inspect failed: status=${inspect.status} body=${JSON.stringify(inspect.body)}`);
@@ -122,14 +32,14 @@ test.describe("roomctl tool-call default await with local real server", () => {
       throw new Error(`inspect returned no recommendedUiResourceUri: ${JSON.stringify(inspect.body)}`);
     }
 
-    const mount = await runRoomctl(configPath, [
+    const mount = await harness.roomctl([
       "mount",
       "--room",
-      roomId,
+      harness.roomId,
       "--instance",
       "integration-1",
       "--server",
-      integrationServerUrl,
+      harness.integrationServerUrl,
       "--container",
       "0,0,4,8",
       "--ui-resource-uri",
@@ -141,21 +51,17 @@ test.describe("roomctl tool-call default await with local real server", () => {
   });
 
   test.afterAll(async () => {
-    await terminateProcess(roomdProcess);
-    await terminateProcess(integrationProcess);
-    if (tempDir) {
-      await rm(tempDir, { recursive: true, force: true });
-    }
+    await harness.stop();
   });
 
   test("await app_initialized times out before any host lifecycle events", async () => {
-    const awaited = await runRoomctl(configPath, [
+    const awaited = await harness.roomctl([
       "await",
       "--room",
-      roomId,
+      harness.roomId,
       "--instance",
       "integration-1",
-      "--event",
+      "--phase",
       "app_initialized",
       "--max-wait",
       "1500ms",
@@ -163,159 +69,92 @@ test.describe("roomctl tool-call default await with local real server", () => {
       "100ms",
     ]);
     expect(awaited.status).toBe(408);
-    expect(awaited.body.code).toBe("EVIDENCE_TIMEOUT");
+    expect(awaited.body.code).toBe("PHASE_TIMEOUT");
   });
 
-  test("tool-call defaults to await and fails when app_initialized evidence is missing", async () => {
-    const defaultCall = await runRoomctl(configPath, [
+  test("tool-call defaults to await and fails when app_initialized phase is missing", async () => {
+    const defaultCall = await harness.roomctl([
       "tool-call",
       "--room",
-      roomId,
+      harness.roomId,
       "--instance",
       "integration-1",
       "--name",
       "get-time",
       "--arguments",
       "{}",
-      "--evidence-max-wait",
+      "--phase-max-wait",
       "1500ms",
-      "--evidence-poll-interval",
+      "--phase-poll-interval",
       "100ms",
     ]);
     expect(defaultCall.status).toBe(412);
-    expect(defaultCall.body.code).toBe("REQUIRED_EVIDENCE_MISSING");
-    expect(defaultCall.body.details.requiredEvidence).toEqual(["app_initialized"]);
+    expect(defaultCall.body.code).toBe("REQUIRED_PHASE_MISSING");
+    expect(defaultCall.body.details.expectedPhase).toBe("app_initialized");
     expect(defaultCall.body.details.awaitInferred).toBe(true);
   });
 
-  test("--no-await bypasses default lifecycle waiting", async () => {
-    const noAwaitCall = await runRoomctl(configPath, [
-      "tool-call",
+  test("readiness reports blockers when app_initialized is missing", async () => {
+    const readiness = await harness.roomctl([
+      "readiness",
       "--room",
-      roomId,
+      harness.roomId,
       "--instance",
       "integration-1",
-      "--name",
-      "get-time",
-      "--arguments",
-      "{}",
-      "--no-await",
+      "--phase",
+      "app_initialized",
     ]);
-    expect(noAwaitCall.status).toBe(200);
-    const claims = noAwaitCall.body.claims as { unknown?: string[] } | undefined;
-    expect(claims?.unknown?.some((claim) => claim.includes("unknown"))).toBeTruthy();
+    expect(readiness.status).toBe(200);
+    expect(readiness.body.ready).toBe(false);
+    expect(Array.isArray(readiness.body.blockers)).toBe(true);
+    expect(String(readiness.body.recommendedNextCommand ?? "")).toContain(
+      "roomctl await --room",
+    );
+  });
+
+  test("strict-mode stress only applies one accepted lifecycle progression per session", async () => {
+    const instanceId = "integration-1";
+    const state = await harness.roomctl(["state", "--room", harness.roomId]);
+    expect(state.status).toBe(200);
+
+    const mount = (state.body.state?.mounts ?? []).find((item: any) => item.instanceId === instanceId);
+    expect(mount?.mountNonce).toBeTruthy();
+    const mountNonce = String(mount.mountNonce);
+    const sessionId = `stress-${Date.now()}`;
+
+    const postLifecycle = async (seq: number, phase: string) => {
+      const response = await fetch(
+        `${harness.roomdBaseUrl}/rooms/${encodeURIComponent(harness.roomId)}/instances/${encodeURIComponent(instanceId)}/lifecycle`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            mountNonce,
+            sessionId,
+            seq,
+            phase,
+          }),
+        },
+      );
+      return (await response.json()) as Record<string, any>;
+    };
+
+    const first = await postLifecycle(1, "bridge_connected");
+    expect(first.ok).toBe(true);
+    expect(first.accepted).toBe("applied");
+
+    const duplicate = await postLifecycle(1, "bridge_connected");
+    expect(duplicate.ok).toBe(true);
+    expect(duplicate.accepted).toBe("duplicate");
+
+    const latest = await harness.roomctl(["state", "--room", harness.roomId]);
+    expect(latest.status).toBe(200);
+    const lifecycleEntry = (latest.body.state?.lifecycle?.instances ?? []).find(
+      (item: any) => item.instanceId === instanceId,
+    );
+    expect(lifecycleEntry?.seq).toBe(1);
+    expect(lifecycleEntry?.phase).toBe("bridge_connected");
   });
 });
-
-async function runRoomctl(configPath: string, args: string[]): Promise<Envelope> {
-  const command = await runCommand(
-    npmCmd,
-    ["run", "--silent", "roomd:cli", "--", "--config", configPath, ...args, "--output", "json"],
-    repoRoot,
-  );
-  if (command.exitCode !== 0) {
-    throw new Error(`roomctl failed: ${command.stderr || command.stdout}`);
-  }
-  return JSON.parse(command.stdout) as Envelope;
-}
-
-async function runCommand(
-  command: string,
-  args: string[],
-  cwd: string,
-): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-  return await new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      cwd,
-      env: process.env,
-      stdio: "pipe",
-    });
-
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk) => {
-      stdout += String(chunk);
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += String(chunk);
-    });
-    child.on("error", reject);
-    child.on("exit", (code) => {
-      resolve({
-        exitCode: code ?? 1,
-        stdout: stdout.trim(),
-        stderr: stderr.trim(),
-      });
-    });
-  });
-}
-
-function pipeLogs(prefix: string, child: ChildProcessWithoutNullStreams): void {
-  child.stdout.on("data", (chunk) => {
-    process.stdout.write(`${prefix} ${String(chunk)}`);
-  });
-  child.stderr.on("data", (chunk) => {
-    process.stderr.write(`${prefix} ${String(chunk)}`);
-  });
-}
-
-async function terminateProcess(child: ChildProcessWithoutNullStreams | undefined): Promise<void> {
-  if (!child || child.killed) {
-    return;
-  }
-
-  child.kill("SIGTERM");
-  const exitedOnTerm = await Promise.race([
-    once(child, "exit").then(() => true).catch(() => false),
-    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 5_000)),
-  ]);
-  if (exitedOnTerm) {
-    return;
-  }
-
-  child.kill("SIGKILL");
-  await once(child, "exit").catch(() => undefined);
-}
-
-async function waitForHttp(
-  url: string,
-  isReady: (status: number) => boolean,
-  timeoutMs: number,
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      const response = await fetch(url);
-      if (isReady(response.status)) {
-        return;
-      }
-    } catch {
-      // retry until timeout
-    }
-    await new Promise((resolve) => setTimeout(resolve, 200));
-  }
-  throw new Error(`Timed out waiting for ${url}`);
-}
-
-async function getFreePort(): Promise<number> {
-  return await new Promise((resolve, reject) => {
-    const server = createServer();
-    server.listen(0, "127.0.0.1");
-    server.on("listening", () => {
-      const address = server.address();
-      if (!address || typeof address === "string") {
-        reject(new Error("Unable to resolve free port"));
-        return;
-      }
-      const { port } = address;
-      server.close((error) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        resolve(port);
-      });
-    });
-    server.on("error", reject);
-  });
-}

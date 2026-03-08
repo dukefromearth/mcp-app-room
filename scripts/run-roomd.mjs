@@ -17,7 +17,7 @@ const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 
 function usage() {
   console.error(
-    "Usage: node scripts/run-roomd.mjs <start|dev> [--config <path>] [--profile <strict|local-dev>]",
+    "Usage: node scripts/run-roomd.mjs <start|dev>",
   );
 }
 
@@ -33,36 +33,12 @@ function parseArgs(args) {
     process.exit(1);
   }
 
-  let configPath;
-  let profileOverride;
-
   for (let i = 1; i < args.length; i++) {
-    const token = args[i];
-    if (token === "--config") {
-      const value = args[i + 1];
-      if (!value) {
-        throw new Error("--config requires a value");
-      }
-      configPath = value;
-      i += 1;
-      continue;
-    }
-    if (token === "--profile") {
-      const value = args[i + 1];
-      if (!value) {
-        throw new Error("--profile requires a value");
-      }
-      profileOverride = value;
-      i += 1;
-      continue;
-    }
-    throw new Error(`Unknown argument: ${token}`);
+    throw new Error(`Unknown argument for startup command: ${args[i]}`);
   }
 
   return {
     mode,
-    configPath,
-    profileOverride,
   };
 }
 
@@ -101,7 +77,6 @@ try {
 
 const configPath = resolveGlobalConfigPath({
   repoRoot,
-  cliConfigPath: options.configPath,
 });
 
 let config;
@@ -119,9 +94,9 @@ try {
   process.exit(1);
 }
 
-const profile = options.profileOverride ?? config.security.profile;
+const profile = config.security.profile;
 if (profile !== "strict" && profile !== "local-dev") {
-  console.error("profile override must be strict or local-dev");
+  console.error("security.profile must be strict or local-dev");
   process.exit(1);
 }
 

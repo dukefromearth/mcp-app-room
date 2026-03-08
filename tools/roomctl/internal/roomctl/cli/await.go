@@ -12,20 +12,20 @@ import (
 	"github.com/duke/mcp-app-room/tools/roomctl/internal/roomctl/roomd"
 )
 
-func newAwaitEvidenceCmd(opts *rootOptions) *cobra.Command {
+func newAwaitPhaseCmd(opts *rootOptions) *cobra.Command {
 	var roomID string
 	var instanceID string
-	var eventName string
+	var phaseName string
 	var sinceRevision int
 	var pollInterval time.Duration
 	var maxWait time.Duration
 
 	cmd := &cobra.Command{
-		Use:   "await --room <room-id> --event <event-name> [--instance <instance-id>]",
-		Short: "Wait until room state evidence contains the target event",
+		Use:   "await --room <room-id> --phase <phase-name> [--instance <instance-id>]",
+		Short: "Wait until room lifecycle reaches the target phase",
 		RunE: func(_ *cobra.Command, _ []string) error {
-			if strings.TrimSpace(eventName) == "" {
-				return errors.New("--event is required")
+			if strings.TrimSpace(phaseName) == "" {
+				return errors.New("--phase is required")
 			}
 			if pollInterval <= 0 {
 				return errors.New("--poll-interval must be > 0")
@@ -35,12 +35,12 @@ func newAwaitEvidenceCmd(opts *rootOptions) *cobra.Command {
 			}
 
 			return runWithClient(opts, func(ctx context.Context, client *roomd.Client) (roomd.Envelope, error) {
-				matched, match, revision, err := awaitEvidence(
+				matched, match, revision, err := awaitPhase(
 					ctx,
 					client,
 					roomID,
 					instanceID,
-					eventName,
+					phaseName,
 					sinceRevision,
 					pollInterval,
 					maxWait,
@@ -53,7 +53,7 @@ func newAwaitEvidenceCmd(opts *rootOptions) *cobra.Command {
 						Status: 200,
 						Body: map[string]any{
 							"ok":        true,
-							"event":     eventName,
+							"phase":     phaseName,
 							"instance":  strings.TrimSpace(instanceID),
 							"revision":  revision,
 							"match":     match,
@@ -65,12 +65,12 @@ func newAwaitEvidenceCmd(opts *rootOptions) *cobra.Command {
 					Status: 408,
 					Body: map[string]any{
 						"ok":    false,
-						"code":  "EVIDENCE_TIMEOUT",
-						"error": fmt.Sprintf("Timed out waiting for evidence event: %s", eventName),
+						"code":  "PHASE_TIMEOUT",
+						"error": fmt.Sprintf("Timed out waiting for lifecycle phase: %s", phaseName),
 						"details": map[string]any{
 							"room":          roomID,
 							"instance":      strings.TrimSpace(instanceID),
-							"event":         eventName,
+							"phase":         phaseName,
 							"sinceRevision": sinceRevision,
 							"maxWaitMs":     maxWait.Milliseconds(),
 						},
@@ -82,22 +82,22 @@ func newAwaitEvidenceCmd(opts *rootOptions) *cobra.Command {
 
 	cmd.Flags().StringVar(&roomID, "room", "", "Room ID")
 	cmd.Flags().StringVar(&instanceID, "instance", "", "Optional instance ID filter")
-	cmd.Flags().StringVar(&eventName, "event", "", "Evidence event name (e.g. app_initialized)")
-	cmd.Flags().IntVar(&sinceRevision, "since-revision", 0, "Only match evidence with revision > this value")
+	cmd.Flags().StringVar(&phaseName, "phase", "", "Lifecycle phase name (e.g. app_initialized)")
+	cmd.Flags().IntVar(&sinceRevision, "since-revision", 0, "Only match lifecycle state with revision > this value")
 	cmd.Flags().DurationVar(&pollInterval, "poll-interval", 300*time.Millisecond, "Polling interval while waiting")
-	cmd.Flags().DurationVar(&maxWait, "max-wait", 15*time.Second, "Maximum time to wait for evidence")
+	cmd.Flags().DurationVar(&maxWait, "max-wait", 15*time.Second, "Maximum time to wait for lifecycle phase")
 	_ = cmd.MarkFlagRequired("room")
-	_ = cmd.MarkFlagRequired("event")
+	_ = cmd.MarkFlagRequired("phase")
 
 	return cmd
 }
 
-func awaitEvidence(
+func awaitPhase(
 	ctx context.Context,
 	client *roomd.Client,
 	roomID string,
 	instanceID string,
-	eventName string,
+	phaseName string,
 	sinceRevision int,
 	pollInterval time.Duration,
 	maxWait time.Duration,
@@ -110,9 +110,9 @@ func awaitEvidence(
 			return false, nil, lastRevision, err
 		}
 
-		matched, match, revision := findEvidenceMatch(
+		matched, match, revision := findPhaseMatch(
 			stateEnv.Body,
-			eventName,
+			phaseName,
 			instanceID,
 			sinceRevision,
 		)
@@ -135,9 +135,9 @@ func awaitEvidence(
 	}
 }
 
-func findEvidenceMatch(
+func findPhaseMatch(
 	body any,
-	eventName string,
+	phaseName string,
 	instanceID string,
 	sinceRevision int,
 ) (bool, map[string]any, int) {
@@ -151,27 +151,33 @@ func findEvidenceMatch(
 	}
 
 	revision := asInt(stateMap["revision"])
-	evidenceList, ok := stateMap["evidence"].([]any)
+	if revision <= sinceRevision {
+		return false, nil, revision
+	}
+
+	lifecycle, ok := stateMap["lifecycle"].(map[string]any)
+	if !ok {
+		return false, nil, revision
+	}
+	instances, ok := lifecycle["instances"].([]any)
 	if !ok {
 		return false, nil, revision
 	}
 
 	wantInstance := strings.TrimSpace(instanceID)
-	for _, raw := range evidenceList {
-		evidenceMap, ok := raw.(map[string]any)
+	for _, raw := range instances {
+		entry, ok := raw.(map[string]any)
 		if !ok {
 			continue
 		}
-		if strings.TrimSpace(asString(evidenceMap["event"])) != strings.TrimSpace(eventName) {
+		currentPhase := strings.TrimSpace(asString(entry["phase"]))
+		if !phaseSatisfiesTarget(currentPhase, strings.TrimSpace(phaseName)) {
 			continue
 		}
-		if asInt(evidenceMap["revision"]) <= sinceRevision {
+		if wantInstance != "" && strings.TrimSpace(asString(entry["instanceId"])) != wantInstance {
 			continue
 		}
-		if wantInstance != "" && strings.TrimSpace(asString(evidenceMap["instanceId"])) != wantInstance {
-			continue
-		}
-		return true, evidenceMap, revision
+		return true, entry, revision
 	}
 
 	return false, nil, revision

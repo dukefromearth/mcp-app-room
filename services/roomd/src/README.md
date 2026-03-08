@@ -33,14 +33,14 @@ pre-mount discovery.
 `RoomState.invocations` and emit `state-updated` events (`call`, then
 `call-result` or `call-failed`) so room clients update without manual refresh.
 
-Room state now also carries protocol-level lifecycle evidence and assurance:
-- `RoomState.evidence[]`: append-only evidence records (`room_created`, `mount_applied`, `rpc_*`, and host/app lifecycle events).
-- `RoomState.assurance`: per-instance proven/unknown summaries derived from evidence.
+Room state now carries protocol-level lifecycle phase state and assurance:
+- `RoomState.lifecycle.instances[]`: per-instance lifecycle cursor (`instanceId`, `mountNonce`, `sessionId`, `phase`, `seq`, `updatedAt`, `lastError`).
+- `RoomState.assurance`: per-instance proven/unknown summaries derived from lifecycle state-machine status.
 
 Host lifecycle events are ingested via:
-- `POST /rooms/:roomId/instances/:instanceId/evidence`
-  - accepted events: `bridge_connected`, `resource_delivered`, `app_initialized`, `app_error`
-  - source: `host` or `app`
+- `POST /rooms/:roomId/instances/:instanceId/lifecycle`
+  - required fields: `mountNonce`, `sessionId`, `seq`, `phase`, optional `details`
+  - phases: `bridge_connected`, `resource_delivered`, `app_initialized`, `app_error`
 
 Mount commands are app/server-level and persist:
 - optional `uiResourceUri` at the mount level.

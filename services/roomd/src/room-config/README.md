@@ -13,7 +13,7 @@ Room configuration domain for `roomd`.
 ## Boundaries
 
 - This module persists and retrieves configuration intent only.
-- Runtime session state, invocations, and evidence remain in `RoomStore`.
+- Runtime session state, invocations, and lifecycle state remain in `RoomStore`.
 - Load execution reuses existing room commands (`mount`, `hide`, `select`) through `RoomStore`.
 
 ## Contract Notes

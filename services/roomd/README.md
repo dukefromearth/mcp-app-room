@@ -36,6 +36,11 @@ Auxiliary host endpoints:
 - `POST /rooms/:roomId/instances/:instanceId/completion/complete`
 - `POST /rooms/:roomId/instances/:instanceId/resources/subscribe`
 - `POST /rooms/:roomId/instances/:instanceId/resources/unsubscribe`
+- `POST /rooms/:roomId/instances/:instanceId/lifecycle`
+
+`POST /rooms` is idempotent:
+- `201 { ok: true, created: true, state }` when the room is newly created.
+- `200 { ok: true, created: false, state }` when the room already exists.
 
 `mount` is app/server-level (not tool-level). `roomd` inspects the upstream MCP
 server, records tool catalog metadata, and selects a UI resource URI when one
@@ -110,7 +115,6 @@ All error responses use a stable shape:
 Current canonical codes:
 - `INVALID_PAYLOAD`
 - `IDEMPOTENCY_CONFLICT`
-- `ROOM_EXISTS`
 - `ROOM_NOT_FOUND`
 - `ROOM_NOT_EMPTY`
 - `INSTANCE_EXISTS`
@@ -124,6 +128,11 @@ Current canonical codes:
 - `AUTH_REQUIRED`
 - `AUTH_FAILED`
 - `AUTH_DISCOVERY_FAILED`
+- `LIFECYCLE_STALE_MOUNT`
+- `LIFECYCLE_STALE_SESSION`
+- `LIFECYCLE_SEQ_OUT_OF_ORDER`
+- `LIFECYCLE_SEQ_CONFLICT`
+- `LIFECYCLE_INVALID_TRANSITION`
 - `UPSTREAM_TRANSPORT_ERROR`
 - `INTERNAL_ERROR`
 

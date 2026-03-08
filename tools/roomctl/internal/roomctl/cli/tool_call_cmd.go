@@ -16,14 +16,13 @@ func newInstanceToolCallCmd(opts *rootOptions) *cobra.Command {
 	var instanceID string
 	var name string
 	var arguments string
-	var noAwait bool
-	var requireEvidence []string
-	var evidencePollInterval time.Duration
-	var evidenceMaxWait time.Duration
+	var requiredPhaseFlag string
+	var phasePollInterval time.Duration
+	var phaseMaxWait time.Duration
 
 	cmd := &cobra.Command{
 		Use:   "tool-call --room <room-id> --instance <instance-id> --name <tool-name> [--arguments '{\"k\":1}']",
-		Short: "Call a tool through a mounted instance endpoint (awaits UI lifecycle by default)",
+		Short: "Call a tool through a mounted instance endpoint (lifecycle-aware for UI-backed instances)",
 		RunE: func(_ *cobra.Command, _ []string) error {
 			obj, err := parse.JSONObject(arguments)
 			if err != nil {
@@ -31,72 +30,69 @@ func newInstanceToolCallCmd(opts *rootOptions) *cobra.Command {
 			}
 			return runWithClient(opts, func(ctx context.Context, client *roomd.Client) (roomd.Envelope, error) {
 				baselineRevision := 0
-				required := compactNonEmpty(requireEvidence)
-				awaitEnabled := !noAwait
+				requiredPhase := strings.TrimSpace(requiredPhaseFlag)
 				awaitInferred := false
 
-				if awaitEnabled || len(required) > 0 {
-					stateEnv, err := client.State(ctx, roomID)
-					if err != nil {
-						return roomd.Envelope{}, err
-					}
-					if body, ok := stateEnv.Body.(map[string]any); ok {
-						if state, ok := body["state"].(map[string]any); ok {
-							baselineRevision = asInt(state["revision"])
-						}
-						if len(required) == 0 && awaitEnabled {
-							required = inferDefaultAwaitEvidence(body, instanceID)
-							awaitInferred = len(required) > 0
-						}
-					}
+				stateEnv, err := client.State(ctx, roomID)
+				if err != nil {
+					return roomd.Envelope{}, err
+				}
+				stateBody, _ := stateEnv.Body.(map[string]any)
+				stateMap, _ := stateBody["state"].(map[string]any)
+				baselineRevision = asInt(stateMap["revision"])
+				if requiredPhase == "" {
+					requiredPhase = inferDefaultRequiredPhase(stateMap, instanceID)
+					awaitInferred = requiredPhase != ""
 				}
 
 				env, err := client.InstanceToolCall(ctx, roomID, instanceID, name, obj)
 				if err != nil {
 					return roomd.Envelope{}, err
 				}
-				if len(required) == 0 {
+
+				if requiredPhase == "" {
 					return env, nil
 				}
 
-				matches := make(map[string]any, len(required))
-				missing := make([]string, 0)
-				for _, event := range required {
-					matched, match, _, waitErr := awaitEvidence(
-						ctx,
-						client,
-						roomID,
-						instanceID,
-						event,
-						baselineRevision,
-						evidencePollInterval,
-						evidenceMaxWait,
-					)
-					if waitErr != nil {
-						return roomd.Envelope{}, waitErr
-					}
-					if matched {
-						matches[event] = match
-						continue
-					}
-					missing = append(missing, event)
+				matched, match, _, waitErr := awaitPhase(
+					ctx,
+					client,
+					roomID,
+					instanceID,
+					requiredPhase,
+					baselineRevision,
+					phasePollInterval,
+					phaseMaxWait,
+				)
+				if waitErr != nil {
+					return roomd.Envelope{}, waitErr
 				}
 
-				if len(missing) > 0 {
+				if !matched {
+					currentPhase := currentLifecyclePhase(stateMap, instanceID)
+					latestStateEnv, latestErr := client.State(ctx, roomID)
+					if latestErr == nil {
+						latestBody, _ := latestStateEnv.Body.(map[string]any)
+						latestStateMap, _ := latestBody["state"].(map[string]any)
+						// GOTCHA: timeout details should reflect the latest observed phase, not
+						// only the pre-call baseline snapshot used for await sinceRevision.
+						currentPhase = currentLifecyclePhase(latestStateMap, instanceID)
+					}
 					return roomd.Envelope{
 						Status: 412,
 						Body: map[string]any{
 							"ok":    false,
-							"code":  "REQUIRED_EVIDENCE_MISSING",
-							"error": "Tool RPC completed, but required lifecycle evidence was not observed",
+							"code":  "REQUIRED_PHASE_MISSING",
+							"error": "Tool RPC completed, but required lifecycle phase was not observed",
 							"details": map[string]any{
-								"room":             roomID,
-								"instance":         instanceID,
-								"requiredEvidence": required,
-								"missingEvidence":  missing,
-								"baselineRevision": baselineRevision,
-								"maxWaitMs":        evidenceMaxWait.Milliseconds(),
-								"awaitInferred":    awaitInferred,
+								"room":                   roomID,
+								"instance":               instanceID,
+								"expectedPhase":          requiredPhase,
+								"currentPhase":           currentPhase,
+								"baselineRevision":       baselineRevision,
+								"timeoutMs":              phaseMaxWait.Milliseconds(),
+								"awaitInferred":          awaitInferred,
+								"recommendedNextCommand": "roomctl readiness --room " + roomID + " --instance " + instanceID,
 							},
 							"result": env.Body,
 						},
@@ -104,11 +100,11 @@ func newInstanceToolCallCmd(opts *rootOptions) *cobra.Command {
 				}
 
 				if body, ok := env.Body.(map[string]any); ok {
-					copied := make(map[string]any, len(body)+1)
+					copied := make(map[string]any, len(body)+2)
 					for key, value := range body {
 						copied[key] = value
 					}
-					copied["evidenceMatches"] = matches
+					copied["phaseMatch"] = match
 					copied["awaitInferred"] = awaitInferred
 					env.Body = copied
 					return env, nil
@@ -117,10 +113,10 @@ func newInstanceToolCallCmd(opts *rootOptions) *cobra.Command {
 				return roomd.Envelope{
 					Status: env.Status,
 					Body: map[string]any{
-						"ok":              true,
-						"result":          env.Body,
-						"evidenceMatches": matches,
-						"awaitInferred":   awaitInferred,
+						"ok":            true,
+						"result":        env.Body,
+						"phaseMatch":    match,
+						"awaitInferred": awaitInferred,
 					},
 				}, nil
 			})
@@ -131,32 +127,25 @@ func newInstanceToolCallCmd(opts *rootOptions) *cobra.Command {
 	cmd.Flags().StringVar(&instanceID, "instance", "", "Mount instance ID")
 	cmd.Flags().StringVar(&name, "name", "", "Tool name")
 	cmd.Flags().StringVar(&arguments, "arguments", "{}", "Tool arguments as JSON object")
-	cmd.Flags().BoolVar(&noAwait, "no-await", false, "Disable default post-call evidence waiting")
-	cmd.Flags().StringSliceVar(&requireEvidence, "require-evidence", nil, "Evidence event names that must be observed after call (repeat or comma-separated)")
-	cmd.Flags().DurationVar(&evidencePollInterval, "evidence-poll-interval", 300*time.Millisecond, "Polling interval while waiting for required evidence")
-	cmd.Flags().DurationVar(&evidenceMaxWait, "evidence-max-wait", 10*time.Second, "Maximum wait time per required evidence event")
+	cmd.Flags().StringVar(&requiredPhaseFlag, "phase", "", "Required lifecycle phase to observe after the call (default inferred for UI-backed instances)")
+	cmd.Flags().DurationVar(&phasePollInterval, "phase-poll-interval", 300*time.Millisecond, "Polling interval while waiting for required lifecycle phase")
+	cmd.Flags().DurationVar(&phaseMaxWait, "phase-max-wait", 10*time.Second, "Maximum wait time for required lifecycle phase")
 	_ = cmd.MarkFlagRequired("room")
 	_ = cmd.MarkFlagRequired("instance")
 	_ = cmd.MarkFlagRequired("name")
-	_ = cmd.Flags().MarkHidden("no-await")
 	return cmd
 }
 
-func inferDefaultAwaitEvidence(body map[string]any, instanceID string) []string {
-	state, ok := body["state"].(map[string]any)
-	if !ok {
-		return nil
-	}
+func inferDefaultRequiredPhase(state map[string]any, instanceID string) string {
 	if !isUIBackedInstance(state, instanceID) {
-		return nil
+		return ""
 	}
 
-	// GOTCHA: we only await by default when UI bootstrap is not yet proven for this instance.
-	if currentInstanceAssuranceLevel(state, instanceID) == "ui_app_initialized" {
-		return nil
+	if phaseSatisfiesTarget(currentLifecyclePhase(state, instanceID), "app_initialized") {
+		return ""
 	}
 
-	return []string{"app_initialized"}
+	return "app_initialized"
 }
 
 func isUIBackedInstance(state map[string]any, instanceID string) bool {
@@ -177,38 +166,24 @@ func isUIBackedInstance(state map[string]any, instanceID string) bool {
 	return false
 }
 
-func currentInstanceAssuranceLevel(state map[string]any, instanceID string) string {
-	assurance, ok := state["assurance"].(map[string]any)
+func currentLifecyclePhase(state map[string]any, instanceID string) string {
+	lifecycle, ok := state["lifecycle"].(map[string]any)
 	if !ok {
 		return ""
 	}
-	instances, ok := assurance["instances"].([]any)
+	instances, ok := lifecycle["instances"].([]any)
 	if !ok {
 		return ""
 	}
 	for _, raw := range instances {
-		instance, ok := raw.(map[string]any)
+		entry, ok := raw.(map[string]any)
 		if !ok {
 			continue
 		}
-		if strings.TrimSpace(asString(instance["instanceId"])) != strings.TrimSpace(instanceID) {
+		if strings.TrimSpace(asString(entry["instanceId"])) != strings.TrimSpace(instanceID) {
 			continue
 		}
-		return strings.TrimSpace(asString(instance["level"]))
+		return strings.TrimSpace(asString(entry["phase"]))
 	}
 	return ""
-}
-
-func compactNonEmpty(values []string) []string {
-	result := make([]string, 0, len(values))
-	for _, value := range values {
-		for _, part := range strings.Split(value, ",") {
-			trimmed := strings.TrimSpace(part)
-			if trimmed == "" {
-				continue
-			}
-			result = append(result, trimmed)
-		}
-	}
-	return result
 }
