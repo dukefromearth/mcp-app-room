@@ -110,7 +110,7 @@ test.describe("roomctl tool-call default await with local real server", () => {
     await waitForHttp(`${roomdBaseUrl}/health`, (status) => status === 200, 30_000);
 
     const create = await runRoomctl(configPath, ["create", "--room", roomId]);
-    if (create.status !== 201 && create.status !== 200 && create.status !== 409) {
+    if (create.status !== 201 && create.status !== 200) {
       throw new Error(`create failed: status=${create.status} body=${JSON.stringify(create.body)}`);
     }
 

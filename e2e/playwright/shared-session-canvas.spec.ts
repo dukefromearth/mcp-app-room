@@ -201,7 +201,7 @@ async function createRoom(roomId: string): Promise<void> {
     body: JSON.stringify({ roomId }),
   });
 
-  if (response.status !== 201 && response.status !== 409) {
+  if (response.status !== 201 && response.status !== 200) {
     throw new Error(`Failed to create room: ${response.status}`);
   }
 }

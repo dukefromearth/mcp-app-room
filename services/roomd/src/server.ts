@@ -145,11 +145,22 @@ app.get("/health", (_req, res) => {
 });
 
 app.post("/rooms", (req, res, next) => {
+  const parsed = createRoomSchema.safeParse(req.body);
+  if (!parsed.success) {
+    next(parsed.error);
+    return;
+  }
+
+  const { roomId } = parsed.data;
   try {
-    const { roomId } = createRoomSchema.parse(req.body);
     const state = store.createRoom(roomId);
-    res.status(201).json({ ok: true, state });
+    res.status(201).json({ ok: true, created: true, state });
   } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ROOM_EXISTS") {
+      const state = store.getState(roomId);
+      res.status(200).json({ ok: true, created: false, state });
+      return;
+    }
     next(error);
   }
 });
