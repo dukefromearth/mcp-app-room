@@ -21,11 +21,12 @@ for `roomd` runtime/API contracts.
     "stability": "additive-only within v1"
   },
   "lifecycleRouteCompatibility": {
-    "status": "deprecated",
+    "status": "removed",
     "deprecationNoticeDate": "2026-03-08",
+    "removalDate": "2026-03-08",
     "canonicalRoute": "/rooms/:roomId/instances/:instanceId/lifecycle",
     "compatibilityRoute": "/rooms/:roomId/instances/:instanceId/evidence",
-    "sunsetNotBeforeDate": "2026-12-31",
+    "sunsetNotBeforeDate": "2026-04-07",
     "trackingSignal": "lifecycle.compatibility_route_hit",
     "telemetryGate": {
       "windowDays": 30,
@@ -63,15 +64,15 @@ Before removal of `legacy-sse`, all of the following must be true:
 
 - Canonical ingress route:
   `POST /rooms/:roomId/instances/:instanceId/lifecycle`
-- Compatibility alias (deprecated):
+- Compatibility alias (removed):
   `POST /rooms/:roomId/instances/:instanceId/evidence`
-- Lifecycle compatibility alias is deprecated as of `2026-03-08`.
-- Compatibility alias removal will not occur before `2026-12-31` and remains
-  tracked by issue `#43`.
+- Lifecycle compatibility alias was deprecated as of `2026-03-08`.
+- Lifecycle compatibility alias was removed on `2026-03-08` under issue `#43`
+  after gate confirmation.
 
 ### Lifecycle Sunset Criteria
 
-Before removing `/evidence`, all criteria below must be true:
+Criteria required before `/evidence` removal (now completed):
 
 1. Compatibility telemetry signal `lifecycle.compatibility_route_hit` is at most
    `0` requests/day for `30` consecutive days.

@@ -10,6 +10,8 @@ This playbook is the canonical migration guide for lifecycle-route convergence i
   "compatibilityRemovalIssue": 43,
   "canonicalLifecycleRoute": "/rooms/:roomId/instances/:instanceId/lifecycle",
   "compatibilityLifecycleRoute": "/rooms/:roomId/instances/:instanceId/evidence",
+  "compatibilityLifecycleStatus": "removed",
+  "compatibilityRemovalDate": "2026-03-08",
   "duplicateCreateContract": {
     "firstCreateStatus": 201,
     "duplicateCreateStatus": 200,
@@ -27,7 +29,7 @@ This playbook is the canonical migration guide for lifecycle-route convergence i
 
 - Canonical lifecycle ingress:
   `POST /rooms/:roomId/instances/:instanceId/lifecycle`
-- Compatibility alias during deprecation window:
+- Compatibility alias (removed):
   `POST /rooms/:roomId/instances/:instanceId/evidence`
 - Canonical room create idempotency:
   - first create: `201` with `{ ok: true, created: true, state }`
@@ -65,10 +67,9 @@ POST /rooms -> 200 { ok: true, created: false, state } on duplicate
 
 ## Deprecation Gate for Compatibility Route
 
-The `/evidence` compatibility alias remains deprecated until issue `#43` is
-explicitly unblocked and merged.
+Compatibility alias removal is complete under issue `#43`.
 
-Removal gate criteria:
+Completed removal gate criteria:
 
 1. Compatibility telemetry signal `lifecycle.compatibility_route_hit` is at most
    `0` requests/day for `30` consecutive days.
@@ -79,4 +80,3 @@ Removal gate criteria:
 
 - `npm run docs:check`
 - `npm run verify:fast`
-
