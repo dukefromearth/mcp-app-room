@@ -20,12 +20,6 @@ Real MCP server fixture used by repository integration tests.
 npm run fixture:integration-server
 ```
 
-Optional stdio mode:
-
-```bash
-npm run fixture:integration-server:stdio
-```
-
 ## Upstream alignment
 
 This fixture is copied and adapted from:

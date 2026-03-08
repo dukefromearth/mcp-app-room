@@ -29,6 +29,10 @@ const commands = [
     name: "npm run fixture:integration-server",
     description: "Run canonical real MCP fixture used by integration tests.",
   },
+  {
+    name: "npm run test:integration:real-mcp",
+    description: "Run real MCP integration tests (negative + host lifecycle positive).",
+  },
 ];
 
 console.log("Recommended commands");
