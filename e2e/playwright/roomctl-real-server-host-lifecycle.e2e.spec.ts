@@ -1,10 +1,15 @@
 import { expect, test } from "@playwright/test";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { once } from "node:events";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import {
+  getFreePort,
+  pipeLogs,
+  runCommand,
+  terminateProcess,
+  waitForHttp,
+} from "./support/process-utils";
 
 type Envelope = {
   status: number;
@@ -20,6 +25,7 @@ const fixtureServerPath = path.join(
   "integration-server",
   "main.mjs",
 );
+const realMcpArtifactDir = path.join(repoRoot, "artifacts", "real-mcp");
 
 test.describe("roomctl lifecycle evidence with full real MCP fixture + host", () => {
   test.describe.configure({ mode: "serial" });
@@ -85,7 +91,9 @@ test.describe("roomctl lifecycle evidence with full real MCP fixture + host", ()
       },
       stdio: "pipe",
     });
-    pipeLogs("[fixture-mcp]", integrationProcess);
+    pipeLogs("[fixture-mcp]", integrationProcess, {
+      logPath: path.join(realMcpArtifactDir, `${roomId}-fixture.log`),
+    });
     await waitForHttp(integrationServerUrl, (status) => status > 0, 20_000);
 
     roomdProcess = spawn(
@@ -100,7 +108,9 @@ test.describe("roomctl lifecycle evidence with full real MCP fixture + host", ()
         stdio: "pipe",
       },
     );
-    pipeLogs("[roomd]", roomdProcess);
+    pipeLogs("[roomd]", roomdProcess, {
+      logPath: path.join(realMcpArtifactDir, `${roomId}-roomd.log`),
+    });
     await waitForHttp(`${roomdBaseUrl}/health`, (status) => status === 200, 30_000);
 
     const inspect = await runRoomctl(configPath, [
@@ -146,7 +156,9 @@ test.describe("roomctl lifecycle evidence with full real MCP fixture + host", ()
         stdio: "pipe",
       },
     );
-    pipeLogs("[host]", hostProcess);
+    pipeLogs("[host]", hostProcess, {
+      logPath: path.join(realMcpArtifactDir, `${roomId}-host.log`),
+    });
     await waitForHttp(`http://127.0.0.1:${hostPort}/api/host-config`, (status) => status === 200, 45_000);
   });
 
@@ -186,6 +198,28 @@ test.describe("roomctl lifecycle evidence with full real MCP fixture + host", ()
     expect(bridgeConnected.body.event).toBe("bridge_connected");
 
     const bridgeRevision = Number(bridgeConnected.body.revision ?? 0);
+    const resourceDelivered = await runRoomctl(configPath, [
+      "await",
+      "--room",
+      roomId,
+      "--instance",
+      "integration-1",
+      "--event",
+      "resource_delivered",
+      "--since-revision",
+      String(Math.max(0, bridgeRevision)),
+      "--max-wait",
+      "10s",
+      "--poll-interval",
+      "200ms",
+    ]);
+    // GOTCHA: `resource_delivered` is emitted best-effort in current host flow
+    // and can be skipped under lifecycle races even when bridge/app init is
+    // healthy. Track strict sequencing via dedicated follow-up.
+    expect([200, 408]).toContain(resourceDelivered.status);
+    const resourceRevision = Number(
+      resourceDelivered.status === 200 ? resourceDelivered.body.revision ?? 0 : bridgeRevision,
+    );
     const appInitialized = await runRoomctl(configPath, [
       "await",
       "--room",
@@ -195,7 +229,7 @@ test.describe("roomctl lifecycle evidence with full real MCP fixture + host", ()
       "--event",
       "app_initialized",
       "--since-revision",
-      String(Math.max(0, bridgeRevision - 1)),
+      String(Math.max(0, resourceRevision)),
       "--max-wait",
       "90s",
       "--poll-interval",
@@ -203,6 +237,9 @@ test.describe("roomctl lifecycle evidence with full real MCP fixture + host", ()
     ]);
     expect(appInitialized.status).toBe(200);
     expect(appInitialized.body.event).toBe("app_initialized");
+    const initializedRevision = Number(appInitialized.body.revision ?? 0);
+    expect(resourceRevision).toBeGreaterThanOrEqual(bridgeRevision);
+    expect(initializedRevision).toBeGreaterThanOrEqual(resourceRevision);
 
     const state = await runRoomctl(configPath, [
       "state",
@@ -244,109 +281,4 @@ async function runRoomctl(configPath: string, args: string[]): Promise<Envelope>
     throw new Error(`roomctl failed: ${command.stderr || command.stdout}`);
   }
   return JSON.parse(command.stdout) as Envelope;
-}
-
-async function runCommand(
-  command: string,
-  args: string[],
-  cwd: string,
-  env: NodeJS.ProcessEnv = {},
-): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-  return await new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      cwd,
-      env: {
-        ...process.env,
-        ...env,
-      },
-      stdio: "pipe",
-    });
-
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk) => {
-      stdout += String(chunk);
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += String(chunk);
-    });
-    child.on("error", reject);
-    child.on("exit", (code) => {
-      resolve({
-        exitCode: code ?? 1,
-        stdout: stdout.trim(),
-        stderr: stderr.trim(),
-      });
-    });
-  });
-}
-
-function pipeLogs(prefix: string, child: ChildProcessWithoutNullStreams): void {
-  child.stdout.on("data", (chunk) => {
-    process.stdout.write(`${prefix} ${String(chunk)}`);
-  });
-  child.stderr.on("data", (chunk) => {
-    process.stderr.write(`${prefix} ${String(chunk)}`);
-  });
-}
-
-async function terminateProcess(child: ChildProcessWithoutNullStreams | undefined): Promise<void> {
-  if (!child || child.killed) {
-    return;
-  }
-
-  child.kill("SIGTERM");
-  const exitedOnTerm = await Promise.race([
-    once(child, "exit").then(() => true).catch(() => false),
-    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 5_000)),
-  ]);
-  if (exitedOnTerm) {
-    return;
-  }
-
-  child.kill("SIGKILL");
-  await once(child, "exit").catch(() => undefined);
-}
-
-async function waitForHttp(
-  url: string,
-  isReady: (status: number) => boolean,
-  timeoutMs: number,
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      const response = await fetch(url);
-      if (isReady(response.status)) {
-        return;
-      }
-    } catch {
-      // retry until timeout
-    }
-    await new Promise((resolve) => setTimeout(resolve, 200));
-  }
-  throw new Error(`Timed out waiting for ${url}`);
-}
-
-async function getFreePort(): Promise<number> {
-  return await new Promise((resolve, reject) => {
-    const server = createServer();
-    server.listen(0, "127.0.0.1");
-    server.on("listening", () => {
-      const address = server.address();
-      if (!address || typeof address === "string") {
-        reject(new Error("Unable to resolve free port"));
-        return;
-      }
-      const { port } = address;
-      server.close((error) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        resolve(port);
-      });
-    });
-    server.on("error", reject);
-  });
 }

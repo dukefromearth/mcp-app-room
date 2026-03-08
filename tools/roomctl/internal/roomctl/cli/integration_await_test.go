@@ -48,6 +48,9 @@ func TestAwaitCommandIntegrationMatchesEvidence(t *testing.T) {
 	if body["event"] != "app_initialized" {
 		t.Fatalf("event=%v want=app_initialized", body["event"])
 	}
+	if revision, ok := body["revision"].(float64); !ok || int(revision) != 7 {
+		t.Fatalf("revision=%v want=7 (matched evidence revision)", body["revision"])
+	}
 }
 
 func TestAwaitCommandIntegrationTimeout(t *testing.T) {
@@ -83,6 +86,44 @@ func TestAwaitCommandIntegrationTimeout(t *testing.T) {
 	}
 	if body["code"] != "EVIDENCE_TIMEOUT" {
 		t.Fatalf("code=%v want=EVIDENCE_TIMEOUT", body["code"])
+	}
+}
+
+func TestAwaitCommandIntegrationReturnsMatchedEvidenceRevisionWhenStateAdvances(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/rooms/demo/state" {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"ok":false}`))
+			return
+		}
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"state":{"revision":12,"evidence":[{"event":"resource_delivered","instanceId":"inst-1","revision":11}]}}`))
+	}))
+	defer server.Close()
+
+	env := runCommand(
+		t,
+		server.URL,
+		"await",
+		"--room", "demo",
+		"--instance", "inst-1",
+		"--event", "resource_delivered",
+		"--since-revision", "10",
+		"--poll-interval", "5ms",
+		"--max-wait", "100ms",
+	)
+
+	if env.Status != http.StatusOK {
+		t.Fatalf("status=%d want=%d", env.Status, http.StatusOK)
+	}
+	body, ok := env.Body.(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected body type: %T", env.Body)
+	}
+	if revision, ok := body["revision"].(float64); !ok || int(revision) != 11 {
+		t.Fatalf("revision=%v want=11 (matched evidence revision)", body["revision"])
 	}
 }
 

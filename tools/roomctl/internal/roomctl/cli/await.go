@@ -103,33 +103,33 @@ func awaitEvidence(
 	maxWait time.Duration,
 ) (bool, map[string]any, int, error) {
 	deadline := time.Now().Add(maxWait)
-	lastRevision := 0
+	lastStateRevision := 0
 	for {
 		stateEnv, err := client.State(ctx, roomID)
 		if err != nil {
-			return false, nil, lastRevision, err
+			return false, nil, lastStateRevision, err
 		}
 
-		matched, match, revision := findEvidenceMatch(
+		matched, match, matchedRevision, stateRevision := findEvidenceMatch(
 			stateEnv.Body,
 			eventName,
 			instanceID,
 			sinceRevision,
 		)
-		lastRevision = revision
+		lastStateRevision = stateRevision
 		if matched {
-			return true, match, revision, nil
+			return true, match, matchedRevision, nil
 		}
 
 		if time.Now().After(deadline) {
-			return false, nil, lastRevision, nil
+			return false, nil, lastStateRevision, nil
 		}
 
 		timer := time.NewTimer(pollInterval)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return false, nil, lastRevision, ctx.Err()
+			return false, nil, lastStateRevision, ctx.Err()
 		case <-timer.C:
 		}
 	}
@@ -140,20 +140,20 @@ func findEvidenceMatch(
 	eventName string,
 	instanceID string,
 	sinceRevision int,
-) (bool, map[string]any, int) {
+) (bool, map[string]any, int, int) {
 	bodyMap, ok := body.(map[string]any)
 	if !ok {
-		return false, nil, 0
+		return false, nil, 0, 0
 	}
 	stateMap, ok := bodyMap["state"].(map[string]any)
 	if !ok {
-		return false, nil, 0
+		return false, nil, 0, 0
 	}
 
-	revision := asInt(stateMap["revision"])
+	stateRevision := asInt(stateMap["revision"])
 	evidenceList, ok := stateMap["evidence"].([]any)
 	if !ok {
-		return false, nil, revision
+		return false, nil, 0, stateRevision
 	}
 
 	wantInstance := strings.TrimSpace(instanceID)
@@ -171,10 +171,12 @@ func findEvidenceMatch(
 		if wantInstance != "" && strings.TrimSpace(asString(evidenceMap["instanceId"])) != wantInstance {
 			continue
 		}
-		return true, evidenceMap, revision
+		// GOTCHA: return the matched evidence revision, not the latest room
+		// state revision. Chained waits use this as a cursor.
+		return true, evidenceMap, asInt(evidenceMap["revision"]), stateRevision
 	}
 
-	return false, nil, revision
+	return false, nil, 0, stateRevision
 }
 
 func asString(value any) string {
