@@ -16,6 +16,8 @@ type GlobalConfig struct {
 	} `yaml:"roomd"`
 }
 
+const ConfigPathEnvVar = "MCP_APP_ROOM_CONFIG"
+
 func ResolveConfigPath(value string) (string, error) {
 	trimmed := strings.TrimSpace(value)
 	if trimmed != "" {
@@ -23,6 +25,14 @@ func ResolveConfigPath(value string) (string, error) {
 			return trimmed, nil
 		}
 		return filepath.Abs(trimmed)
+	}
+
+	envPath := strings.TrimSpace(os.Getenv(ConfigPathEnvVar))
+	if envPath != "" {
+		if filepath.IsAbs(envPath) {
+			return envPath, nil
+		}
+		return filepath.Abs(envPath)
 	}
 
 	cwd, err := os.Getwd()
@@ -44,7 +54,7 @@ func ResolveConfigPath(value string) (string, error) {
 		dir = parent
 	}
 
-	return "", errors.New("could not find config/global.yaml in current or parent directories")
+	return "", errors.New("could not resolve global config path; use --config, set MCP_APP_ROOM_CONFIG, or run from a directory containing config/global.yaml")
 }
 
 func Load(path string) (GlobalConfig, error) {

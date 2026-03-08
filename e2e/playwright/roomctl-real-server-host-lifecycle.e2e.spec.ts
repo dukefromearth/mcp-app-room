@@ -30,6 +30,7 @@ test.describe("roomctl lifecycle evidence with full real MCP fixture + host", ()
   let roomId = "";
   let roomdPort = 0;
   let hostPort = 0;
+  let sandboxPort = 0;
   let integrationPort = 0;
   let roomdBaseUrl = "";
   let integrationServerUrl = "";
@@ -42,7 +43,7 @@ test.describe("roomctl lifecycle evidence with full real MCP fixture + host", ()
   test.beforeAll(async () => {
     roomdPort = await getFreePort();
     hostPort = await getFreePort();
-    const sandboxPort = await getFreePort();
+    sandboxPort = await getFreePort();
     integrationPort = await getFreePort();
 
     roomdBaseUrl = `http://127.0.0.1:${roomdPort}`;
@@ -161,7 +162,9 @@ test.describe("roomctl lifecycle evidence with full real MCP fixture + host", ()
   test("host mount reaches app_initialized and default tool-call await succeeds", async ({
     page,
   }) => {
-    await page.goto(`http://127.0.0.1:${hostPort}/?theme=hide`);
+    // GOTCHA: Host defaults sandbox URL to hostPort+1; tests use arbitrary ports.
+    const sandboxUrl = `http://127.0.0.1:${sandboxPort}/sandbox.html`;
+    await page.goto(`http://127.0.0.1:${hostPort}/?theme=hide&sandbox=${encodeURIComponent(sandboxUrl)}`);
     await expect(page.locator('[data-instance-id="integration-1"]')).toBeVisible({
       timeout: 40_000,
     });
@@ -233,8 +236,9 @@ test.describe("roomctl lifecycle evidence with full real MCP fixture + host", ()
 async function runRoomctl(configPath: string, args: string[]): Promise<Envelope> {
   const command = await runCommand(
     npmCmd,
-    ["run", "--silent", "roomd:cli", "--", "--config", configPath, ...args, "--output", "json"],
+    ["run", "--silent", "roomd:cli", "--", ...args, "--output", "json"],
     repoRoot,
+    { MCP_APP_ROOM_CONFIG: configPath },
   );
   if (command.exitCode !== 0) {
     throw new Error(`roomctl failed: ${command.stderr || command.stdout}`);
@@ -246,11 +250,15 @@ async function runCommand(
   command: string,
   args: string[],
   cwd: string,
+  env: NodeJS.ProcessEnv = {},
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   return await new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd,
-      env: process.env,
+      env: {
+        ...process.env,
+        ...env,
+      },
       stdio: "pipe",
     });
 

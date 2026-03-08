@@ -19,6 +19,7 @@ import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import type { McpUiResourceCsp } from "@modelcontextprotocol/ext-apps";
 import { parse as parseYaml } from "yaml";
+import { resolveHostAssetPaths } from "./asset-paths";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -271,7 +272,8 @@ function loadRuntimeConfig(argv: string[]): RuntimeConfig {
   };
 }
 
-const DIRECTORY = join(__dirname, "dist");
+const hostAssetPaths = resolveHostAssetPaths({ moduleDir: __dirname });
+const DIRECTORY = hostAssetPaths.distDir;
 const runtimeConfig = loadRuntimeConfig(process.argv.slice(2));
 const HOST_PORT = runtimeConfig.hostPort;
 const SANDBOX_PORT = runtimeConfig.sandboxPort;
@@ -563,7 +565,25 @@ sandboxApp.get(["/", "/sandbox.html"], (req, res) => {
   res.setHeader("Pragma", "no-cache");
   res.setHeader("Expires", "0");
 
-  res.sendFile(join(DIRECTORY, "sandbox.html"));
+  // GOTCHA: the repo path can include hidden parent directories (e.g. ".codex").
+  // Passing an absolute path to sendFile can trigger send's dotfile guard and
+  // produce a 404 even when the target exists. Serve by filename + root instead.
+  res.sendFile("sandbox.html", {
+    root: hostAssetPaths.distDir,
+    dotfiles: "allow",
+  }, (error) => {
+    if (!error) {
+      return;
+    }
+    console.error(
+      "[Sandbox] Failed to serve sandbox HTML",
+      hostAssetPaths.sandboxHtmlPath,
+      error,
+    );
+    if (!res.headersSent) {
+      res.status(500).send("Failed to load sandbox runtime");
+    }
+  });
 });
 
 sandboxApp.use((_req, res) => {

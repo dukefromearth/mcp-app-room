@@ -210,8 +210,9 @@ test.describe("roomctl tool-call default await with local real server", () => {
 async function runRoomctl(configPath: string, args: string[]): Promise<Envelope> {
   const command = await runCommand(
     npmCmd,
-    ["run", "--silent", "roomd:cli", "--", "--config", configPath, ...args, "--output", "json"],
+    ["run", "--silent", "roomd:cli", "--", ...args, "--output", "json"],
     repoRoot,
+    { MCP_APP_ROOM_CONFIG: configPath },
   );
   if (command.exitCode !== 0) {
     throw new Error(`roomctl failed: ${command.stderr || command.stdout}`);
@@ -223,11 +224,15 @@ async function runCommand(
   command: string,
   args: string[],
   cwd: string,
+  env: NodeJS.ProcessEnv = {},
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   return await new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd,
-      env: process.env,
+      env: {
+        ...process.env,
+        ...env,
+      },
       stdio: "pipe",
     });
 
