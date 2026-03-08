@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "hostLifecycleEvidenceEvents": [
+    "bridge_connected",
+    "resource_delivered",
+    "app_initialized",
+    "app_error"
+  ],
+  "defaultAwaitEvidenceEvent": "app_initialized",
+  "assuranceLevels": [
+    "control_plane_ok",
+    "ui_bridge_connected",
+    "ui_resource_delivered",
+    "ui_app_initialized"
+  ]
+}

@@ -1,4 +1,5 @@
 import type { RoomState, UiResource } from "./contracts";
+import type { HostLifecycleEvidenceEvent } from "./lifecycle-contract.generated";
 
 interface RoomdError {
   error?: string;
@@ -34,7 +35,7 @@ export interface RoomdClient {
   reportInstanceEvidence(
     roomId: string,
     instanceId: string,
-    event: "bridge_connected" | "resource_delivered" | "app_initialized" | "app_error",
+    event: HostLifecycleEvidenceEvent,
     details?: Record<string, unknown>,
     invocationId?: string,
   ): Promise<void>;
@@ -113,13 +114,13 @@ export function createRoomdClient(roomdUrl: string): RoomdClient {
     async reportInstanceEvidence(
       roomId: string,
       instanceId: string,
-      event: "bridge_connected" | "resource_delivered" | "app_initialized" | "app_error",
+      event: HostLifecycleEvidenceEvent,
       details?: Record<string, unknown>,
       invocationId?: string,
     ): Promise<void> {
       const payload: {
         source: "host";
-        event: "bridge_connected" | "resource_delivered" | "app_initialized" | "app_error";
+        event: HostLifecycleEvidenceEvent;
         details?: Record<string, unknown>;
         invocationId?: string;
       } = {
