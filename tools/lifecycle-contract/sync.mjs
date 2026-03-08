@@ -62,6 +62,14 @@ if (checkMode) {
 function validateCanonical(value) {
   const events = value?.hostLifecycleEvidenceEvents;
   const defaultEvent = value?.defaultAwaitEvidenceEvent;
+  const ontology = value?.ontology;
+  const canonicalNoun = ontology?.canonicalNoun;
+  const compatibilityNoun = ontology?.legacyCompatibilityNoun;
+  const canonicalIngressRoute = ontology?.canonicalIngressRoute;
+  const compatibilityIngressRoute = ontology?.compatibilityIngressRoute;
+  const compatibilityStatus = ontology?.compatibilityStatus;
+  const compatibilityRemovalIssue = ontology?.compatibilityRemovalIssue;
+  const compatibilitySunsetNotBefore = ontology?.compatibilitySunsetNotBefore;
 
   if (!Array.isArray(events) || events.length === 0 || !events.every((entry) => typeof entry === "string" && entry.trim() !== "")) {
     throw new Error("contracts/lifecycle-contract.json: hostLifecycleEvidenceEvents must be a non-empty string array");
@@ -71,6 +79,48 @@ function validateCanonical(value) {
   }
   if (!events.includes(defaultEvent)) {
     throw new Error("contracts/lifecycle-contract.json: defaultAwaitEvidenceEvent must exist in hostLifecycleEvidenceEvents");
+  }
+  if (
+    typeof canonicalNoun !== "string" ||
+    canonicalNoun.trim() === ""
+  ) {
+    throw new Error("contracts/lifecycle-contract.json: ontology.canonicalNoun must be a non-empty string");
+  }
+  if (
+    typeof compatibilityNoun !== "string" ||
+    compatibilityNoun.trim() === ""
+  ) {
+    throw new Error("contracts/lifecycle-contract.json: ontology.legacyCompatibilityNoun must be a non-empty string");
+  }
+  if (
+    typeof canonicalIngressRoute !== "string" ||
+    !canonicalIngressRoute.includes("/:roomId/instances/:instanceId/")
+  ) {
+    throw new Error(
+      "contracts/lifecycle-contract.json: ontology.canonicalIngressRoute must include /:roomId/instances/:instanceId/",
+    );
+  }
+  if (
+    typeof compatibilityIngressRoute !== "string" ||
+    !compatibilityIngressRoute.includes("/:roomId/instances/:instanceId/")
+  ) {
+    throw new Error(
+      "contracts/lifecycle-contract.json: ontology.compatibilityIngressRoute must include /:roomId/instances/:instanceId/",
+    );
+  }
+  if (typeof compatibilityStatus !== "string" || compatibilityStatus.trim() === "") {
+    throw new Error("contracts/lifecycle-contract.json: ontology.compatibilityStatus must be a non-empty string");
+  }
+  if (!Number.isInteger(compatibilityRemovalIssue) || compatibilityRemovalIssue <= 0) {
+    throw new Error("contracts/lifecycle-contract.json: ontology.compatibilityRemovalIssue must be a positive integer");
+  }
+  if (
+    typeof compatibilitySunsetNotBefore !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(compatibilitySunsetNotBefore)
+  ) {
+    throw new Error(
+      "contracts/lifecycle-contract.json: ontology.compatibilitySunsetNotBefore must be a YYYY-MM-DD date string",
+    );
   }
 }
 
@@ -95,7 +145,9 @@ function renderHostTs(canonicalContract) {
     .map((event) => `  \"${event}\",`)
     .join("\n");
 
-  return `${renderTsHeader()}export const HOST_LIFECYCLE_EVIDENCE_EVENTS = [\n${eventsLiteral}\n] as const;\n\nexport type HostLifecycleEvidenceEvent =\n  (typeof HOST_LIFECYCLE_EVIDENCE_EVENTS)[number];\n\nexport const DEFAULT_AWAIT_EVIDENCE_EVENT =\n  \"${canonicalContract.defaultAwaitEvidenceEvent}\" as const;\n`;
+  const ontology = canonicalContract.ontology;
+
+  return `${renderTsHeader()}export const HOST_LIFECYCLE_EVIDENCE_EVENTS = [\n${eventsLiteral}\n] as const;\n\nexport type HostLifecycleEvidenceEvent =\n  (typeof HOST_LIFECYCLE_EVIDENCE_EVENTS)[number];\n\nexport const DEFAULT_AWAIT_EVIDENCE_EVENT =\n  \"${canonicalContract.defaultAwaitEvidenceEvent}\" as const;\n\nexport const LIFECYCLE_CANONICAL_NOUN =\n  \"${ontology.canonicalNoun}\" as const;\n\nexport const LIFECYCLE_COMPATIBILITY_NOUN =\n  \"${ontology.legacyCompatibilityNoun}\" as const;\n\nexport const LIFECYCLE_CANONICAL_INGRESS_ROUTE =\n  \"${ontology.canonicalIngressRoute}\" as const;\n\nexport const LIFECYCLE_COMPATIBILITY_INGRESS_ROUTE =\n  \"${ontology.compatibilityIngressRoute}\" as const;\n\nexport const LIFECYCLE_COMPATIBILITY_STATUS =\n  \"${ontology.compatibilityStatus}\" as const;\n\nexport const LIFECYCLE_COMPATIBILITY_REMOVAL_ISSUE =\n  ${ontology.compatibilityRemovalIssue} as const;\n\nexport const LIFECYCLE_COMPATIBILITY_SUNSET_NOT_BEFORE =\n  \"${ontology.compatibilitySunsetNotBefore}\" as const;\n`;
 }
 
 function renderRoomdTs(canonicalContract) {
@@ -107,5 +159,7 @@ function renderRoomctlGo(canonicalContract) {
     .map((event) => `\t\"${event}\",`)
     .join("\n");
 
-  return `${renderGoHeader()}package cli\n\nvar HostLifecycleEvidenceEvents = []string{\n${eventsLiteral}\n}\n\nconst DefaultAwaitEvidenceEvent = \"${canonicalContract.defaultAwaitEvidenceEvent}\"\n`;
+  const ontology = canonicalContract.ontology;
+
+  return `${renderGoHeader()}package cli\n\nvar HostLifecycleEvidenceEvents = []string{\n${eventsLiteral}\n}\n\nconst DefaultAwaitEvidenceEvent = \"${canonicalContract.defaultAwaitEvidenceEvent}\"\nconst LifecycleCanonicalNoun = \"${ontology.canonicalNoun}\"\nconst LifecycleCompatibilityNoun = \"${ontology.legacyCompatibilityNoun}\"\nconst LifecycleCanonicalIngressRoute = \"${ontology.canonicalIngressRoute}\"\nconst LifecycleCompatibilityIngressRoute = \"${ontology.compatibilityIngressRoute}\"\nconst LifecycleCompatibilityStatus = \"${ontology.compatibilityStatus}\"\nconst LifecycleCompatibilityRemovalIssue = ${ontology.compatibilityRemovalIssue}\nconst LifecycleCompatibilitySunsetNotBefore = \"${ontology.compatibilitySunsetNotBefore}\"\n`;
 }

@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "hostLifecycleEvidenceEvents": [
     "bridge_connected",
     "resource_delivered",
@@ -12,5 +12,14 @@
     "ui_bridge_connected",
     "ui_resource_delivered",
     "ui_app_initialized"
-  ]
+  ],
+  "ontology": {
+    "canonicalNoun": "lifecycle",
+    "legacyCompatibilityNoun": "evidence",
+    "canonicalIngressRoute": "/rooms/:roomId/instances/:instanceId/lifecycle",
+    "compatibilityIngressRoute": "/rooms/:roomId/instances/:instanceId/evidence",
+    "compatibilityStatus": "deprecated",
+    "compatibilityRemovalIssue": 43,
+    "compatibilitySunsetNotBefore": "2026-12-31"
+  }
 }

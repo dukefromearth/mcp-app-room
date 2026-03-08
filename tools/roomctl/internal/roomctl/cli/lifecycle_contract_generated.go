@@ -10,3 +10,10 @@ var HostLifecycleEvidenceEvents = []string{
 }
 
 const DefaultAwaitEvidenceEvent = "app_initialized"
+const LifecycleCanonicalNoun = "lifecycle"
+const LifecycleCompatibilityNoun = "evidence"
+const LifecycleCanonicalIngressRoute = "/rooms/:roomId/instances/:instanceId/lifecycle"
+const LifecycleCompatibilityIngressRoute = "/rooms/:roomId/instances/:instanceId/evidence"
+const LifecycleCompatibilityStatus = "deprecated"
+const LifecycleCompatibilityRemovalIssue = 43
+const LifecycleCompatibilitySunsetNotBefore = "2026-12-31"

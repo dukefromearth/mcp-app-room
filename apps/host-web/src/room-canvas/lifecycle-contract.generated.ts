@@ -12,3 +12,24 @@ export type HostLifecycleEvidenceEvent =
 
 export const DEFAULT_AWAIT_EVIDENCE_EVENT =
   "app_initialized" as const;
+
+export const LIFECYCLE_CANONICAL_NOUN =
+  "lifecycle" as const;
+
+export const LIFECYCLE_COMPATIBILITY_NOUN =
+  "evidence" as const;
+
+export const LIFECYCLE_CANONICAL_INGRESS_ROUTE =
+  "/rooms/:roomId/instances/:instanceId/lifecycle" as const;
+
+export const LIFECYCLE_COMPATIBILITY_INGRESS_ROUTE =
+  "/rooms/:roomId/instances/:instanceId/evidence" as const;
+
+export const LIFECYCLE_COMPATIBILITY_STATUS =
+  "deprecated" as const;
+
+export const LIFECYCLE_COMPATIBILITY_REMOVAL_ISSUE =
+  43 as const;
+
+export const LIFECYCLE_COMPATIBILITY_SUNSET_NOT_BEFORE =
+  "2026-12-31" as const;
