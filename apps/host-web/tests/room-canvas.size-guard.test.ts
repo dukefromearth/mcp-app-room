@@ -3,12 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 const DEFAULT_MAX_SOURCE_LINES = 450;
-const FILE_MAX_OVERRIDES: Record<string, number> = {
-  // TODO(#46): remove override after host seam extraction completes.
-  "serve.ts": 750,
-  // TODO(#46): remove override after host seam extraction completes.
-  "implementation.ts": 550
-};
+const FILE_MAX_OVERRIDES: Record<string, number> = {};
 
 function collectSourceFiles(dir: string): string[] {
   const entries = fs.readdirSync(dir, { withFileTypes: true });
